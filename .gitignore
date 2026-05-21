@@ -1,0 +1,41 @@
+# Variáveis de ambiente — NUNCA commitar o .env real
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+*.egg-info/
+
+# Logs
+*.log
+*.log.*
+app.log*
+
+# Banco de dados SQLite
+*.db
+*.db-wal
+*.db-shm
+
+# Arquivos gerados em runtime
+progresso_buscador.json
+relatorio_microwork_consorcio.csv
+erro_login.png
+
+# Boletos (dados sensíveis de clientes)
+boletos/
+
+# Pytest / cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.user
