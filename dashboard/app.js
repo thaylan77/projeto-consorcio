@@ -278,10 +278,17 @@ function formatTel(tel) {
     return tel;
 }
 
+function formatMoeda(val) {
+    if (!val || val === '—') return '—';
+    const n = parseFloat(val);
+    if (isNaN(n)) return val;
+    return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+}
+
 function renderClientes(data) {
     const tbody = document.getElementById('clientes-tbody');
     if (!data || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center">Nenhum cliente encontrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center">Nenhum cliente encontrado.</td></tr>`;
         return;
     }
     tbody.innerHTML = '';
@@ -293,10 +300,12 @@ function renderClientes(data) {
                 <span style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px;">${c.cpf}</span>
             </td>
             <td style="color:var(--text-muted);font-size:0.82rem;">${formatTel(c.telefone)}</td>
-            <td style="color:var(--text-muted);font-size:0.82rem;">${c.numerocontrato || '—'}</td>
-            <td style="font-size:0.85rem;">${c.vencimento || c.datavencimento || '—'}</td>
-            <td>${statusClienteBadge(c)}</td>
-            <td>${erroStatusBadge(c.ultimo_status)}</td>`;
+            <td style="font-size:0.82rem;">${c.contrato || c.proposta || '—'}</td>
+            <td style="font-size:0.82rem;color:var(--text-muted);">${c.modelo || '—'}</td>
+            <td style="font-size:0.82rem;color:var(--text-muted);">${c.datavenda || '—'}</td>
+            <td style="font-size:0.82rem;">${formatMoeda(c.valorcredito)}</td>
+            <td style="font-size:0.85rem;">${c.vencimento || '—'}</td>
+            <td>${statusClienteBadge(c)}</td>`;
         tbody.appendChild(tr);
     });
 }

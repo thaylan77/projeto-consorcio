@@ -156,8 +156,9 @@ def get_clientes():
 
             # Coleta colunas extras que o CSV possa ter
             extras = {}
-            for col in ("numerocontrato", "datavencimento", "valorparcela",
-                        "modelo", "administradora", "pontovenda", "vendedor"):
+            for col in ("contrato", "proposta", "empresa", "modelo",
+                        "administradorareduzida", "pontovenda", "vendedor",
+                        "datavenda", "prazo", "valorprimeiraparcela", "valorcredito"):
                 if col in df.columns:
                     val = row.get(col, "")
                     extras[col] = "" if str(val) in ("nan", "None", "") else str(val)
@@ -172,7 +173,7 @@ def get_clientes():
                 "telefone":      tel,
                 "ultimo_tipo":   disp.get("tipo_disparo", ""),
                 "ultimo_status": disp.get("status", ""),
-                "vencimento":    disp.get("vencimento", extras.get("datavencimento", "")),
+                "vencimento":    disp.get("vencimento", ""),
                 "pago":          pago,
                 **extras,
             })
