@@ -8,6 +8,7 @@ Na primeira execução migra automaticamente os JSON existentes.
 
 import json
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -213,6 +214,30 @@ def stats_do_dia() -> dict:
         "erros": erros,
         "por_tipo": {r["tipo_disparo"]: r["n"] for r in por_tipo},
     }
+
+
+def status_por_cpf() -> dict:
+    """
+    Retorna {cpf: {tipo_disparo, status, vencimento}} com o último disparo
+    de cada cliente, extraindo o CPF do campo arquivo (Boleto_{CPF}_Venc-...).
+    """
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT arquivo, tipo_disparo, status, vencimento "
+            "FROM disparos WHERE id IN "
+            "(SELECT MAX(id) FROM disparos GROUP BY arquivo)"
+        ).fetchall()
+    resultado = {}
+    for r in rows:
+        m = re.search(r"Boleto_(\d+)_", r["arquivo"])
+        if m:
+            cpf = m.group(1)
+            resultado[cpf] = {
+                "tipo_disparo": r["tipo_disparo"],
+                "status":       r["status"],
+                "vencimento":   r["vencimento"],
+            }
+    return resultado
 
 
 # =============================================================================

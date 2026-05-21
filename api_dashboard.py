@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 from functools import wraps
 import os
+import re
 import glob
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from config import (
 )
 
 _DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard")
+_ARQUIVO_CSV   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "relatorio_microwork_consorcio.csv")
 
 app = Flask(__name__)
 CORS(app)
@@ -112,6 +114,84 @@ def download_pdf(pasta, nome_arquivo):
     if os.path.exists(caminho):
         return send_file(caminho, as_attachment=False)
     return jsonify({"error": "Arquivo nao encontrado."}), 404
+
+
+@app.route("/api/clientes", methods=["GET"])
+def get_clientes():
+    """Retorna lista de clientes do CSV cruzada com status de disparos e pagamentos."""
+    if not os.path.exists(_ARQUIVO_CSV):
+        return jsonify({"clientes": [], "total": 0, "sem_csv": True}), 200
+
+    try:
+        import pandas as pd
+        df = pd.read_csv(_ARQUIVO_CSV)
+
+        # Parâmetros
+        busca  = request.args.get("q", "").lower().strip()
+        limite = min(int(request.args.get("limite", 200)), 1000)
+        offset = int(request.args.get("offset", 0))
+
+        # Status dos disparos e pagamentos já confirmados
+        mapa_status = db.status_por_cpf()
+        pagamentos  = {p["telefone"] for p in db.listar_pagamentos()}
+
+        clientes = []
+        for _, row in df.iterrows():
+            cpf_raw = re.sub(r"\D", "", str(row.get("pessoacpfcnpj", "")))
+            nome    = str(row.get("pessoa", "")).strip().title()
+            tel     = re.sub(r"\D", "", str(row.get("celularformatado", "")))
+
+            if not cpf_raw or not nome or nome in ("", "Nan"):
+                continue
+
+            # Normaliza telefone para conferir pagamentos
+            if tel and not tel.startswith("55"):
+                tel = "55" + tel
+            if len(tel) == 12:
+                tel = tel[:4] + "9" + tel[4:]
+
+            # CPF mascarado
+            cpf_mask = (f"{cpf_raw[:3]}.***.***-{cpf_raw[-2:]}"
+                        if len(cpf_raw) == 11 else cpf_raw)
+
+            # Coleta colunas extras que o CSV possa ter
+            extras = {}
+            for col in ("numerocontrato", "datavencimento", "valorparcela",
+                        "modelo", "administradora", "pontovenda", "vendedor"):
+                if col in df.columns:
+                    val = row.get(col, "")
+                    extras[col] = "" if str(val) in ("nan", "None", "") else str(val)
+
+            # Status derivado do banco
+            disp = mapa_status.get(cpf_raw, {})
+            pago = tel in pagamentos
+
+            clientes.append({
+                "nome":          nome,
+                "cpf":           cpf_mask,
+                "telefone":      tel,
+                "ultimo_tipo":   disp.get("tipo_disparo", ""),
+                "ultimo_status": disp.get("status", ""),
+                "vencimento":    disp.get("vencimento", extras.get("datavencimento", "")),
+                "pago":          pago,
+                **extras,
+            })
+
+        # Filtro por busca
+        if busca:
+            clientes = [c for c in clientes if
+                busca in c["nome"].lower() or
+                busca in c["cpf"].lower() or
+                busca in c["telefone"] or
+                busca in c.get("numerocontrato", "").lower()]
+
+        total = len(clientes)
+        return jsonify({
+            "total":    total,
+            "clientes": clientes[offset: offset + limite],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/agenda", methods=["GET"])

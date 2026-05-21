@@ -212,8 +212,124 @@ runBtn.addEventListener('click', runSystem);
 cobradorBtn.addEventListener('click', runCobrador);
 iaBtn.addEventListener('click', runIA);
 
+// ── Clientes ─────────────────────────────────────────────────────────────────
+let clientesData = [];
+let clientesOffset = 0;
+const CLIENTES_LIMITE = 50;
+
+async function fetchClientes(busca = '', offset = 0) {
+    const tbody = document.getElementById('clientes-tbody');
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color:var(--text-muted);">Carregando...</td></tr>`;
+    try {
+        const params = new URLSearchParams({ limite: CLIENTES_LIMITE, offset, q: busca });
+        const res  = await fetch(`${API_URL}/clientes?${params}`);
+        const data = await res.json();
+
+        if (data.sem_csv) {
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color:#f59e0b;">
+                CSV da MicroWork ainda não disponível. Execute o pipeline primeiro.</td></tr>`;
+            return;
+        }
+
+        clientesData = data.clientes || [];
+        clientesOffset = offset;
+
+        // Resumo
+        const total      = data.total || 0;
+        const disparados = clientesData.filter(c => c.ultimo_tipo).length;
+        const pendentes  = clientesData.filter(c => !c.ultimo_tipo && !c.pago).length;
+        const pagos      = clientesData.filter(c => c.pago).length;
+
+        document.getElementById('cli-total').textContent      = total;
+        document.getElementById('cli-disparados').textContent = disparados;
+        document.getElementById('cli-pendentes').textContent  = pendentes;
+        document.getElementById('cli-pagos').textContent      = pagos;
+
+        renderClientes(clientesData);
+        renderPaginacaoClientes(total, offset, busca);
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color:#ef4444;">Erro ao carregar clientes.</td></tr>`;
+    }
+}
+
+function statusClienteBadge(c) {
+    if (c.pago) return '<span class="badge-pagto">Pago (IA)</span>';
+    const map = {
+        'Cobranca': '<span class="badge-cobranca">Cobrado D+2</span>',
+        'D-1':      '<span class="badge-d1">Lembrete D-1</span>',
+        'D-7':      '<span class="badge-d7">Aviso D-7</span>',
+    };
+    if (c.ultimo_tipo && map[c.ultimo_tipo]) return map[c.ultimo_tipo];
+    if (c.ultimo_tipo) return `<span class="badge-erro">${c.ultimo_tipo}</span>`;
+    return '<span style="color:var(--text-muted);font-size:0.8rem;">Pendente</span>';
+}
+
+function erroStatusBadge(status) {
+    if (!status) return '';
+    if (status === 'Enviado') return '<span class="badge badge-success" style="font-size:0.72rem;">Enviado</span>';
+    return `<span class="badge-erro" style="font-size:0.72rem;">${status}</span>`;
+}
+
+function formatTel(tel) {
+    if (!tel || tel.length < 10) return tel || '—';
+    const n = tel.replace(/\D/g, '');
+    if (n.length === 13) return `+${n.slice(0,2)} (${n.slice(2,4)}) ${n.slice(4,9)}-${n.slice(9)}`;
+    if (n.length === 12) return `+${n.slice(0,2)} (${n.slice(2,4)}) ${n.slice(4,8)}-${n.slice(8)}`;
+    return tel;
+}
+
+function renderClientes(data) {
+    const tbody = document.getElementById('clientes-tbody');
+    if (!data || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center">Nenhum cliente encontrado.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = '';
+    data.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="font-weight:600;color:white;">${c.nome}</td>
+            <td style="color:var(--text-muted);font-size:0.82rem;">
+                <span style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px;">${c.cpf}</span>
+            </td>
+            <td style="color:var(--text-muted);font-size:0.82rem;">${formatTel(c.telefone)}</td>
+            <td style="color:var(--text-muted);font-size:0.82rem;">${c.numerocontrato || '—'}</td>
+            <td style="font-size:0.85rem;">${c.vencimento || c.datavencimento || '—'}</td>
+            <td>${statusClienteBadge(c)}</td>
+            <td>${erroStatusBadge(c.ultimo_status)}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderPaginacaoClientes(total, offset, busca) {
+    const container = document.getElementById('clientes-paginacao');
+    container.innerHTML = '';
+    const totalPags = Math.ceil(total / CLIENTES_LIMITE);
+    const pagAtual  = Math.floor(offset / CLIENTES_LIMITE);
+
+    for (let i = 0; i < totalPags; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i + 1;
+        btn.style.cssText = `padding:4px 10px;border-radius:5px;border:1px solid var(--border);
+            background:${i === pagAtual ? 'var(--primary)' : 'transparent'};
+            color:${i === pagAtual ? '#fff' : 'var(--text-muted)'};cursor:pointer;font-size:0.8rem;`;
+        btn.onclick = () => fetchClientes(busca, i * CLIENTES_LIMITE);
+        container.appendChild(btn);
+    }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 updateDashboard();
 fetchLogs();
+fetchClientes();
 setInterval(updateDashboard, 30000);
 setInterval(fetchLogs, 5000);
+
+// Eventos — clientes
+document.getElementById('clientes-search').addEventListener('input', e => {
+    clearTimeout(window._cliSearchTimer);
+    window._cliSearchTimer = setTimeout(() => fetchClientes(e.target.value.trim()), 400);
+});
+document.getElementById('clientes-refresh').addEventListener('click', () => {
+    fetchClientes(document.getElementById('clientes-search').value.trim());
+});
