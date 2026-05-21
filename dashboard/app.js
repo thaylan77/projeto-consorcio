@@ -243,7 +243,8 @@ async function fetchClientes(busca = '', offset = 0) {
         renderClientes(clientesData);
         renderPaginacaoClientes(total, offset, busca);
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color:#ef4444;">Erro ao carregar clientes.</td></tr>`;
+        console.error('fetchClientes error:', e);
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:#ef4444;">Erro: ${e.message}</td></tr>`;
     }
 }
 
