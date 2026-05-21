@@ -274,10 +274,13 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
             except Exception as e:
                 log(f"Erro na emissao: {e}", "ERROR", MODULO)
 
-            # Reseta seleção para próxima parcela
-            btn_localiza = driver.find_element(By.ID, "ctl00_Conteudo_identificacao_cota_btnLocaliza")
-            driver.execute_script("arguments[0].click();", btn_localiza)
-            time.sleep(5)
+            # Reseta seleção para próxima parcela (página pode mudar após download)
+            try:
+                btn_localiza = driver.find_element(By.ID, "ctl00_Conteudo_identificacao_cota_btnLocaliza")
+                driver.execute_script("arguments[0].click();", btn_localiza)
+                time.sleep(5)
+            except Exception:
+                pass  # não crítico — só necessário quando há múltiplas parcelas
 
         return True
 
