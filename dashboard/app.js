@@ -235,7 +235,8 @@ async function fetchClientes(busca = '', offset = 0) {
         clientesOffset = offset;
 
         // Totais calculados no backend sobre todos os registros (não só a página)
-        document.getElementById('cli-total').textContent      = data.total      || 0;
+        const total = data.total || 0;
+        document.getElementById('cli-total').textContent      = total;
         document.getElementById('cli-disparados').textContent = data.disparados || 0;
         document.getElementById('cli-pendentes').textContent  = data.pendentes  || 0;
         document.getElementById('cli-pagos').textContent      = data.pagos      || 0;
