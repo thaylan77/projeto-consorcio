@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS
 from functools import wraps
 import os
@@ -21,6 +21,8 @@ from config import (
     ANTHROPIC_API_KEY,
     SUNCHAT_WEBHOOK_SECRET,
 )
+
+_DASHBOARD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard")
 
 app = Flask(__name__)
 CORS(app)
@@ -148,6 +150,16 @@ def run_cobrador():
 def run_respostas():
     threading.Thread(target=_run_background, args=(RESPOSTAS_SCRIPT,), daemon=True).start()
     return jsonify({"status": "Analise de respostas WhatsApp iniciada!"})
+
+
+@app.route("/")
+def index():
+    return send_from_directory(_DASHBOARD_DIR, "index.html")
+
+
+@app.route("/<path:filename>")
+def static_dashboard(filename):
+    return send_from_directory(_DASHBOARD_DIR, filename)
 
 
 @app.route("/api/health", methods=["GET"])
