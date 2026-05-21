@@ -339,7 +339,20 @@ def main():
                 data_venda = linha["datavenda"].strftime("%d/%m/%Y")
                 log(f"[{i+1}/{total}] {nome} (Venda: {data_venda})", modulo=MODULO)
 
-                processar_cliente(driver, wait, cpf, nome)
+                try:
+                    processar_cliente(driver, wait, cpf, nome)
+                except Exception as e:
+                    # Marca como processado ANTES de verificar o driver para
+                    # evitar loop infinito no mesmo cliente após reconexão
+                    cpfs_ja_feitos.add(cpf)
+                    salvar_progresso(cpfs_ja_feitos)
+                    log(f"Erro em {nome}, cliente marcado como pulado: {e}", "WARNING", MODULO)
+                    # Verifica se o driver ainda responde
+                    try:
+                        _ = driver.current_url
+                        continue  # driver vivo — pula este cliente e segue
+                    except Exception:
+                        raise  # driver morto — sai para reconectar
 
                 cpfs_ja_feitos.add(cpf)
                 salvar_progresso(cpfs_ja_feitos)
