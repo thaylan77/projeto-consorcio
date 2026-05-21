@@ -36,6 +36,12 @@ def _criar_options() -> webdriver.ChromeOptions:
     }
     opts.add_experimental_option("prefs", prefs)
     opts.add_argument("--log-level=3")
+
+    # Necessário em servidores Linux sem interface gráfica (VPS/CI)
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+
     return opts
 
 
