@@ -186,10 +186,17 @@ def get_clientes():
                 busca in c["telefone"] or
                 busca in c.get("numerocontrato", "").lower()]
 
-        total = len(clientes)
+        total       = len(clientes)
+        disparados  = sum(1 for c in clientes if c["ultimo_tipo"])
+        pendentes   = sum(1 for c in clientes if not c["ultimo_tipo"] and not c["pago"])
+        pagos       = sum(1 for c in clientes if c["pago"])
+
         return jsonify({
-            "total":    total,
-            "clientes": clientes[offset: offset + limite],
+            "total":      total,
+            "disparados": disparados,
+            "pendentes":  pendentes,
+            "pagos":      pagos,
+            "clientes":   clientes[offset: offset + limite],
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

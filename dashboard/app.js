@@ -234,16 +234,11 @@ async function fetchClientes(busca = '', offset = 0) {
         clientesData = data.clientes || [];
         clientesOffset = offset;
 
-        // Resumo
-        const total      = data.total || 0;
-        const disparados = clientesData.filter(c => c.ultimo_tipo).length;
-        const pendentes  = clientesData.filter(c => !c.ultimo_tipo && !c.pago).length;
-        const pagos      = clientesData.filter(c => c.pago).length;
-
-        document.getElementById('cli-total').textContent      = total;
-        document.getElementById('cli-disparados').textContent = disparados;
-        document.getElementById('cli-pendentes').textContent  = pendentes;
-        document.getElementById('cli-pagos').textContent      = pagos;
+        // Totais calculados no backend sobre todos os registros (não só a página)
+        document.getElementById('cli-total').textContent      = data.total      || 0;
+        document.getElementById('cli-disparados').textContent = data.disparados || 0;
+        document.getElementById('cli-pendentes').textContent  = data.pendentes  || 0;
+        document.getElementById('cli-pagos').textContent      = data.pagos      || 0;
 
         renderClientes(clientesData);
         renderPaginacaoClientes(total, offset, busca);
