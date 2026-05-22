@@ -153,6 +153,16 @@ def ja_enviado_tipo(arquivo: str, tipo: str) -> bool:
     return row is not None
 
 
+def listar_disparos_ativos() -> list[dict]:
+    """Retorna todos os disparos com status Enviado (para a tela de cobrança operacional)."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT arquivo, tipo_disparo, nome, cpf, vencimento, data_disparo "
+            "FROM disparos WHERE status='Enviado'"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def listar_disparos(limite: int = 200, offset: int = 0) -> list[dict]:
     with _conn() as con:
         rows = con.execute(

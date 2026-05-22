@@ -61,6 +61,39 @@
         @media(max-width:700px) { .stats-grid { grid-template-columns: repeat(2,1fr); } }
 
         .stat-icon.manual { background: rgba(139,92,246,0.15); color:#a78bfa; }
+
+        /* ── Cobrança Operacional tabs ── */
+        .cob-tab {
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text-muted);
+            padding: 5px 14px;
+            font-size: 0.78rem;
+            cursor: pointer;
+            transition: all .15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .cob-tab:hover { border-color: #60a5fa; color: #93c5fd; }
+        .cob-tab.cob-active {
+            background: rgba(59,130,246,0.15);
+            border-color: rgba(59,130,246,0.45);
+            color: #93c5fd;
+            font-weight: 600;
+        }
+        .cob-tab-cnt {
+            background: rgba(255,255,255,0.08);
+            border-radius: 10px;
+            padding: 1px 7px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+        .cob-tab.cob-active .cob-tab-cnt {
+            background: rgba(59,130,246,0.28);
+        }
     </style>
 </head>
 <body>
@@ -92,6 +125,13 @@
                     <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
                 </svg>
                 Clientes
+            </a>
+            <a href="#cobranca" class="menu-item" id="menu-cobranca">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.11 11 19.79 19.79 0 0 1 1.08 2.18 2 2 0 0 1 3.05 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 7.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 15z"/>
+                </svg>
+                Cobrança
             </a>
             <a href="#historico" class="menu-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -310,6 +350,93 @@
                 </table>
             </div>
             <div style="display:flex;justify-content:center;gap:8px;margin-top:16px;" id="clientes-paginacao"></div>
+        </section>
+
+        <!-- COBRANÇA OPERACIONAL -->
+        <section id="cobranca" style="margin-bottom:56px;">
+
+            <!-- Cabeçalho -->
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;
+                        margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <h2 style="font-size:1.25rem;font-weight:700;color:white;margin:0 0 4px;">
+                        Cobrança ativa
+                    </h2>
+                    <p id="cob-subtitle" style="color:var(--text-muted);font-size:0.85rem;margin:0;">
+                        Carregando...
+                    </p>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);
+                                border-radius:8px;padding:8px 14px;font-size:0.82rem;
+                                display:flex;align-items:center;gap:6px;color:var(--text-muted);">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2">
+                            <path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                        </svg>
+                        Enviados hoje:&nbsp;<strong id="cob-enviados-hoje" style="color:#60a5fa;">—</strong>
+                    </div>
+                    <button class="btn-cobrador" onclick="runCobrador()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.11 11 19.79 19.79 0 0 1 1.08 2.18 2 2 0 0 1 3.05 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 7.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 15z"/>
+                        </svg>
+                        Enviar lembrete em lote
+                    </button>
+                    <button class="btn-primary" style="padding:8px 14px;font-size:0.82rem;"
+                        onclick="fetchCobranca()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                        Atualizar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Abas de filtro + busca -->
+            <div style="display:flex;justify-content:space-between;align-items:center;
+                        margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;" id="cob-tabs">
+                    <button class="cob-tab cob-active" data-filtro="todos">Todos <span class="cob-tab-cnt" id="ct-todos">—</span></button>
+                    <button class="cob-tab" data-filtro="hoje">Vencem hoje <span class="cob-tab-cnt" id="ct-hoje">—</span></button>
+                    <button class="cob-tab" data-filtro="ate7">Até 7 dias <span class="cob-tab-cnt" id="ct-ate7">—</span></button>
+                    <button class="cob-tab" data-filtro="8a30">8–30 dias <span class="cob-tab-cnt" id="ct-8a30">—</span></button>
+                    <button class="cob-tab" data-filtro="30mais">30+ dias <span class="cob-tab-cnt" id="ct-30mais">—</span></button>
+                    <button class="cob-tab" data-filtro="risco">Em risco (3+) <span class="cob-tab-cnt" id="ct-risco">—</span></button>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <div class="search-bar">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                        <input type="text" id="cob-search" placeholder="Buscar cliente, CPF...">
+                    </div>
+                    <span style="color:var(--text-muted);font-size:0.73rem;white-space:nowrap;">Maior atraso ↓</span>
+                </div>
+            </div>
+
+            <!-- Tabela -->
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>CLIENTE</th>
+                            <th>CONTRATO · PARCELA</th>
+                            <th>VALOR</th>
+                            <th>ATRASO</th>
+                            <th>ENVIOS</th>
+                            <th>CNY</th>
+                            <th>HIST.</th>
+                            <th>ÚLTIMO CONTATO</th>
+                            <th>AÇÕES</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cob-tbody">
+                        <tr><td colspan="9" class="text-center">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="display:flex;justify-content:center;gap:8px;margin-top:16px;"
+                id="cob-paginacao"></div>
         </section>
 
         <!-- HISTÓRICO -->

@@ -7,6 +7,7 @@ import glob
 import subprocess
 import sys
 import threading
+from datetime import datetime
 from werkzeug.utils import safe_join
 
 import db
@@ -313,6 +314,256 @@ def webhook_sunchat():
 
         resultado = processar_resposta(telefone, mensagem)
         return jsonify(resultado), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# COBRANÇA OPERACIONAL
+# =============================================================================
+def _csv_get(dados, col: str, default: str = "") -> str:
+    """Lê coluna de uma Series pandas ou dict, normalizando valores nulos."""
+    v = dados.get(col, default) if hasattr(dados, "get") else default
+    s = str(v) if v is not None else ""
+    return "" if s.strip() in ("nan", "None", "NaN", "") else s.strip()
+
+
+def _fmt_ultimo_contato(ts: str) -> str:
+    """'20/05/2026 14:22:35' → '20/Mai 14:22'"""
+    if not ts:
+        return ""
+    _M = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+          "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    try:
+        partes = ts.split(" ")
+        d, m, _ = partes[0].split("/")
+        hora = partes[1][:5] if len(partes) > 1 else ""
+        return f"{int(d)}/{_M[int(m)]} {hora}"
+    except Exception:
+        return ts
+
+
+def _parse_valor(s: str) -> float:
+    """Converte strings 'R$ 1.234,56' ou '1234.56' para float."""
+    s = re.sub(r"[^\d,.]", "", s)
+    if "," in s and "." in s:          # 1.234,56
+        s = s.replace(".", "").replace(",", ".")
+    elif "," in s:                     # 1234,56
+        s = s.replace(",", ".")
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+
+def _construir_dados_cobranca() -> list[dict]:
+    """
+    Constrói a lista de clientes com boleto D-1 enviado e ainda não pagos.
+    Cruza disparos com CSV para enriquecer com valor, parcela, modelo, etc.
+    Retorna lista ordenada por maior atraso.
+    """
+    import pandas as pd
+
+    hoje = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # ── CSV ────────────────────────────────────────────────────────────────────
+    mapa_csv: dict = {}
+    if os.path.exists(_ARQUIVO_CSV):
+        try:
+            df = pd.read_csv(_ARQUIVO_CSV)
+            for _, row in df.iterrows():
+                cpf = re.sub(r"\D", "", str(row.get("pessoacpfcnpj", "")))
+                if cpf:
+                    mapa_csv[cpf] = row
+        except Exception:
+            pass
+
+    # ── Disparos ───────────────────────────────────────────────────────────────
+    rows = db.listar_disparos_ativos()
+
+    # Agrupa por arquivo (= um boleto único)
+    por_arquivo: dict = {}
+    for r in rows:
+        arq = r["arquivo"]
+        if arq not in por_arquivo:
+            por_arquivo[arq] = {
+                "arquivo":    arq,
+                "nome":       r["nome"] or "",
+                "cpf_db":     re.sub(r"\D", "", r["cpf"] or ""),
+                "vencimento": r["vencimento"] or "",
+                "envios":     {"D-7": 0, "D-1": 0, "Cobranca": 0},
+                "ultimo_ts":  "",
+            }
+        e = por_arquivo[arq]
+        if not e["nome"] and r["nome"]:
+            e["nome"] = r["nome"]
+        tipo = r["tipo_disparo"]
+        if tipo in e["envios"]:
+            e["envios"][tipo] += 1
+        d = r["data_disparo"] or ""
+        if d > e["ultimo_ts"]:
+            e["ultimo_ts"] = d
+
+    # ── Pagamentos confirmados via WhatsApp ────────────────────────────────────
+    pagamentos_tel = {p["telefone"] for p in db.listar_pagamentos()}
+
+    # ── Monta resultado ────────────────────────────────────────────────────────
+    resultado = []
+    for arq, entry in por_arquivo.items():
+        if entry["envios"]["D-1"] == 0:
+            continue  # ainda não recebeu D-1; não entra na cobrança ativa
+
+        # CPF: preferência pelo nome do arquivo
+        m = re.search(r"Boleto_(\d+)_", arq)
+        cpf = m.group(1) if m else entry["cpf_db"]
+        cpf = re.sub(r"\D", "", cpf)
+
+        dados = mapa_csv.get(cpf, {})
+
+        # Telefone
+        tel_raw = _csv_get(dados, "celularformatado")
+        tel = re.sub(r"\D", "", tel_raw)
+        if tel and not tel.startswith("55"):
+            tel = "55" + tel
+        if len(tel) == 12:
+            tel = tel[:4] + "9" + tel[4:]
+
+        if tel and tel in pagamentos_tel:
+            continue  # já confirmou pagamento via IA
+
+        # Atraso
+        venc_str = entry["vencimento"]
+        try:
+            venc_dt = datetime.strptime(venc_str, "%d/%m/%Y").replace(
+                hour=0, minute=0, second=0, microsecond=0)
+            dias_atraso = (hoje - venc_dt).days
+        except Exception:
+            dias_atraso = 0
+        if dias_atraso < 0:
+            continue  # ainda não venceu
+
+        # Parcela atual e prazo
+        prazo_str = _csv_get(dados, "prazo")
+        try:
+            prazo = int(float(prazo_str.replace(",", ".")))
+        except Exception:
+            prazo = 0
+
+        datavenda_str = _csv_get(dados, "datavenda")
+        parcela_atual = 0
+        if datavenda_str:
+            for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+                try:
+                    dv = datetime.strptime(datavenda_str[:10], fmt)
+                    parcela_atual = max(1, (hoje.year - dv.year) * 12
+                                       + (hoje.month - dv.month))
+                    break
+                except Exception:
+                    continue
+
+        historico_pct = (round(parcela_atual / prazo * 100)
+                         if prazo > 0 and parcela_atual > 0 else 0)
+        historico_pct = min(historico_pct, 99)
+
+        # Valor
+        valor = _parse_valor(_csv_get(dados, "valorprimeiraparcela"))
+
+        # Outros campos
+        nome     = (entry["nome"] or _csv_get(dados, "pessoa").title() or "—")
+        modelo   = _csv_get(dados, "modelo") or "—"
+        contrato = (_csv_get(dados, "contrato") or
+                    _csv_get(dados, "proposta") or "")
+
+        # CPF mascarado
+        cpf_mask = (f"{cpf[:3]}.***.***-{cpf[-2:]}"
+                    if len(cpf) == 11 else cpf)
+
+        # Telefone formatado para exibição
+        if len(tel) == 13:
+            tel_fmt = f"+{tel[:2]} ({tel[2:4]}) {tel[4:9]}-{tel[9:]}"
+        elif len(tel) == 12:
+            tel_fmt = f"+{tel[:2]} ({tel[2:4]}) {tel[4:8]}-{tel[8:]}"
+        else:
+            tel_fmt = tel or "—"
+
+        total_envios = sum(entry["envios"].values())
+
+        resultado.append({
+            "nome":          nome,
+            "cpf":           cpf_mask,
+            "telefone":      tel,
+            "telefone_fmt":  tel_fmt,
+            "contrato":      contrato,
+            "modelo":        modelo,
+            "parcela_atual": parcela_atual,
+            "prazo":         prazo,
+            "valor":         round(valor, 2),
+            "dias_atraso":   dias_atraso,
+            "vencimento":    venc_str,
+            "envios":        entry["envios"],
+            "total_envios":  total_envios,
+            "historico_pct": historico_pct,
+            "ultimo_contato": _fmt_ultimo_contato(entry["ultimo_ts"]),
+        })
+
+    resultado.sort(key=lambda x: x["dias_atraso"], reverse=True)
+    return resultado
+
+
+@app.route("/api/cobranca-operacional", methods=["GET"])
+def get_cobranca_operacional():
+    """Dados para a tela de cobrança operacional (abas de filtro + tabela)."""
+    try:
+        filtro = request.args.get("filtro", "todos")
+        q      = request.args.get("q", "").lower().strip()
+        limite = min(int(request.args.get("limite", 20)), 200)
+        offset = int(request.args.get("offset", 0))
+
+        clientes = _construir_dados_cobranca()
+
+        # Contagens por aba (sobre o total, antes de filtrar)
+        por_filtro = {
+            "todos":   len(clientes),
+            "hoje":    sum(1 for c in clientes if c["dias_atraso"] == 0),
+            "ate7":    sum(1 for c in clientes if 1 <= c["dias_atraso"] <= 7),
+            "8a30":    sum(1 for c in clientes if 8 <= c["dias_atraso"] <= 30),
+            "30mais":  sum(1 for c in clientes if c["dias_atraso"] > 30),
+            "risco":   sum(1 for c in clientes if c["total_envios"] >= 3),
+        }
+
+        valor_total   = sum(c["valor"] for c in clientes)
+        enviados_hoje = db.stats_do_dia().get("enviados", 0)
+
+        # Aplica filtro de aba
+        if filtro == "hoje":
+            clientes = [c for c in clientes if c["dias_atraso"] == 0]
+        elif filtro == "ate7":
+            clientes = [c for c in clientes if 1 <= c["dias_atraso"] <= 7]
+        elif filtro == "8a30":
+            clientes = [c for c in clientes if 8 <= c["dias_atraso"] <= 30]
+        elif filtro == "30mais":
+            clientes = [c for c in clientes if c["dias_atraso"] > 30]
+        elif filtro == "risco":
+            clientes = [c for c in clientes if c["total_envios"] >= 3]
+
+        # Busca textual
+        if q:
+            clientes = [c for c in clientes if
+                q in c["nome"].lower() or
+                q in c["cpf"].lower() or
+                q in c["telefone"] or
+                q in c["contrato"].lower()]
+
+        total  = len(clientes)
+        pagina = clientes[offset: offset + limite]
+
+        return jsonify({
+            "total":         total,
+            "valor_total":   round(valor_total, 2),
+            "enviados_hoje": enviados_hoje,
+            "por_filtro":    por_filtro,
+            "clientes":      pagina,
+        })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

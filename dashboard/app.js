@@ -396,3 +396,224 @@ document.getElementById('clientes-refresh').addEventListener('click', () => {
 document.getElementById('empresa-select').addEventListener('change', () => {
     fetchClientes(document.getElementById('clientes-search').value.trim(), 0);
 });
+
+// =============================================================================
+// COBRANÇA OPERACIONAL
+// =============================================================================
+let cobFiltro  = 'todos';
+let cobOffset  = 0;
+const COB_LIMITE = 20;
+
+// ── Badges visuais ────────────────────────────────────────────────────────────
+function atrasoBadge(dias) {
+    if (dias === 0)
+        return `<span style="background:rgba(16,185,129,.15);color:#34d399;border:1px solid rgba(16,185,129,.3);
+            border-radius:20px;padding:3px 11px;font-size:.78rem;font-weight:700;">Hoje</span>`;
+    if (dias <= 7)
+        return `<span style="background:rgba(245,158,11,.15);color:#fbbf24;border:1px solid rgba(245,158,11,.3);
+            border-radius:20px;padding:3px 11px;font-size:.78rem;font-weight:700;">${dias}d</span>`;
+    if (dias <= 30)
+        return `<span style="background:rgba(249,115,22,.15);color:#fb923c;border:1px solid rgba(249,115,22,.3);
+            border-radius:20px;padding:3px 11px;font-size:.78rem;font-weight:700;">${dias}d</span>`;
+    return `<span style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);
+        border-radius:20px;padding:3px 11px;font-size:.78rem;font-weight:700;">${dias}d</span>`;
+}
+
+function enviosBadges(envios) {
+    const cfg = [
+        { key: 'D-7',      cor: '#60a5fa', bg: 'rgba(59,130,246,.22)',  title: 'Aviso D-7'    },
+        { key: 'D-1',      cor: '#fbbf24', bg: 'rgba(245,158,11,.22)', title: 'Lembrete D-1'  },
+        { key: 'Cobranca', cor: '#f87171', bg: 'rgba(239,68,68,.22)',  title: 'Cobrança D+2'  },
+    ];
+    return cfg.map(b => {
+        const n = (envios && envios[b.key]) || 0;
+        return `<span title="${b.title}" style="
+            display:inline-flex;align-items:center;justify-content:center;
+            width:22px;height:22px;border-radius:50%;
+            background:${b.bg};color:${b.cor};
+            font-size:.7rem;font-weight:800;margin-right:2px;">${n}</span>`;
+    }).join('');
+}
+
+function histBar(pct) {
+    const cor = pct >= 80 ? '#34d399' : pct >= 50 ? '#fbbf24' : '#f87171';
+    return `<div style="display:flex;align-items:center;gap:6px;">
+        <div style="width:56px;height:5px;background:rgba(255,255,255,.08);
+                    border-radius:3px;overflow:hidden;flex-shrink:0;">
+            <div style="width:${pct}%;height:100%;background:${cor};border-radius:3px;"></div>
+        </div>
+        <span style="font-size:.72rem;color:var(--text-muted);">${pct}%</span>
+    </div>`;
+}
+
+// ── Render da tabela ──────────────────────────────────────────────────────────
+function renderCobranca(clientes) {
+    const tbody = document.getElementById('cob-tbody');
+    if (!clientes || clientes.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center" style="color:var(--text-muted);">
+            Nenhum cliente em cobrança ativa no momento.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = '';
+    clientes.forEach(c => {
+        const parcelaStr = c.prazo > 0
+            ? `Parcela ${c.parcela_atual}/${c.prazo}`
+            : c.vencimento ? `Venc. ${c.vencimento}` : '—';
+
+        const cnyCor = c.dias_atraso > 0 ? '#f87171' : '#34d399';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>
+                <div style="font-weight:600;color:white;margin-bottom:3px;">${c.nome}</div>
+                <div style="font-size:.73rem;color:var(--text-muted);">
+                    <span style="background:rgba(255,255,255,.05);padding:1px 5px;border-radius:3px;">
+                        ${c.cpf}</span>&nbsp;·&nbsp;${c.telefone_fmt || '—'}
+                </div>
+            </td>
+            <td>
+                <div style="font-size:.82rem;color:white;">${c.contrato || '—'}</div>
+                <div style="font-size:.72rem;color:var(--text-muted);margin-top:3px;">
+                    ${c.modelo} · ${parcelaStr}
+                </div>
+            </td>
+            <td style="font-weight:700;color:white;white-space:nowrap;">
+                R$&nbsp;${(c.valor || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}
+            </td>
+            <td>${atrasoBadge(c.dias_atraso)}</td>
+            <td style="white-space:nowrap;">${enviosBadges(c.envios)}</td>
+            <td>
+                <span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;
+                             color:var(--text-muted);">
+                    <span style="width:7px;height:7px;border-radius:50%;display:inline-block;
+                                 background:${cnyCor};flex-shrink:0;"></span>
+                    Em aberto
+                </span>
+            </td>
+            <td>${histBar(c.historico_pct)}</td>
+            <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;">
+                ${c.ultimo_contato || '—'}
+            </td>
+            <td style="white-space:nowrap;">
+                <a href="tel:${c.telefone}"
+                   style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;
+                          border:1px solid var(--border);border-radius:6px;color:var(--text-muted);
+                          font-size:.73rem;text-decoration:none;margin-right:4px;transition:color .15s;"
+                   onmouseover="this.style.color='#60a5fa';this.style.borderColor='#60a5fa'"
+                   onmouseout="this.style.color='var(--text-muted)';this.style.borderColor='var(--border)'">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.11 11 19.79 19.79 0 0 1 1.08 2.18 2 2 0 0 1 3.05 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 7.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 15z"/>
+                    </svg>
+                    Ligar
+                </a>
+                <span class="btn-2avia"
+                    data-tel="${c.telefone}" data-venc="${c.vencimento}"
+                    data-nome="${encodeURIComponent(c.nome)}"
+                    style="display:inline-flex;align-items:center;gap:4px;padding:4px 9px;
+                           border:1px solid rgba(245,158,11,.35);border-radius:6px;color:#fbbf24;
+                           font-size:.73rem;cursor:pointer;transition:opacity .15s;"
+                    onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                    2ª via
+                </span>
+            </td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+// ── 2ª via via WhatsApp ───────────────────────────────────────────────────────
+document.getElementById('cob-tbody').addEventListener('click', e => {
+    const btn = e.target.closest('.btn-2avia');
+    if (!btn) return;
+    const tel  = btn.dataset.tel;
+    const venc = btn.dataset.venc;
+    const nome = decodeURIComponent(btn.dataset.nome);
+    const msg  = encodeURIComponent(
+        `Olá, ${nome}!\n\nIdentificamos que o seu boleto do consórcio com vencimento em ` +
+        `*${venc}* ainda não foi liquidado em nosso sistema.\n\n` +
+        `Caso já tenha realizado o pagamento, desconsidere esta mensagem.\n` +
+        `Caso contrário, regularize para evitar juros e proteger seu contrato.\n\n` +
+        `Estamos à disposição!\n\n*Socel Motos - Yamaha*`
+    );
+    window.open(`https://wa.me/${tel}?text=${msg}`, '_blank');
+});
+
+// ── Paginação ─────────────────────────────────────────────────────────────────
+function renderPaginacaoCobranca(total, offset) {
+    const container = document.getElementById('cob-paginacao');
+    container.innerHTML = '';
+    const totalPags = Math.ceil(total / COB_LIMITE);
+    const pagAtual  = Math.floor(offset / COB_LIMITE);
+    for (let i = 0; i < totalPags; i++) {
+        const btn = document.createElement('button');
+        btn.textContent = i + 1;
+        btn.style.cssText = `padding:4px 10px;border-radius:5px;border:1px solid var(--border);
+            background:${i === pagAtual ? 'var(--primary)' : 'transparent'};
+            color:${i === pagAtual ? '#fff' : 'var(--text-muted)'};cursor:pointer;font-size:.8rem;`;
+        btn.onclick = () => fetchCobranca(i * COB_LIMITE);
+        container.appendChild(btn);
+    }
+}
+
+// ── Fetch principal ───────────────────────────────────────────────────────────
+async function fetchCobranca(offset = 0) {
+    const tbody = document.getElementById('cob-tbody');
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center"
+        style="color:var(--text-muted);">Carregando...</td></tr>`;
+    try {
+        const q = document.getElementById('cob-search')?.value?.trim() || '';
+        const params = new URLSearchParams({
+            filtro: cobFiltro, q, limite: COB_LIMITE, offset
+        });
+        const data = await fetch(`${API_URL}/cobranca-operacional?${params}`)
+            .then(r => r.json());
+
+        if (data.error) throw new Error(data.error);
+        cobOffset = offset;
+
+        // Subtítulo
+        const vt = (data.valor_total || 0).toLocaleString('pt-BR',
+            { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        document.getElementById('cob-subtitle').textContent =
+            `${data.total || 0} clientes inadimplentes · R$ ${vt} em atraso`;
+
+        // Enviados hoje
+        document.getElementById('cob-enviados-hoje').textContent =
+            data.enviados_hoje ?? '—';
+
+        // Contagens das abas
+        const pf = data.por_filtro || {};
+        document.getElementById('ct-todos').textContent   = pf.todos   ?? '—';
+        document.getElementById('ct-hoje').textContent    = pf.hoje    ?? '—';
+        document.getElementById('ct-ate7').textContent    = pf.ate7    ?? '—';
+        document.getElementById('ct-8a30').textContent    = pf['8a30'] ?? '—';
+        document.getElementById('ct-30mais').textContent  = pf['30mais'] ?? '—';
+        document.getElementById('ct-risco').textContent   = pf.risco   ?? '—';
+
+        renderCobranca(data.clientes || []);
+        renderPaginacaoCobranca(data.total || 0, offset);
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center"
+            style="color:#ef4444;">Erro: ${e.message}</td></tr>`;
+    }
+}
+
+// ── Event listeners das abas ──────────────────────────────────────────────────
+document.getElementById('cob-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.cob-tab');
+    if (!btn) return;
+    document.querySelectorAll('#cob-tabs .cob-tab').forEach(b => b.classList.remove('cob-active'));
+    btn.classList.add('cob-active');
+    cobFiltro = btn.dataset.filtro;
+    fetchCobranca(0);
+});
+
+document.getElementById('cob-search').addEventListener('input', e => {
+    clearTimeout(window._cobSearchTimer);
+    window._cobSearchTimer = setTimeout(() => fetchCobranca(0), 400);
+});
+
+// Carrega junto com o dashboard
+fetchCobranca();
