@@ -398,6 +398,119 @@ document.getElementById('empresa-select').addEventListener('change', () => {
 });
 
 // =============================================================================
+// BOLETOS VIEWER
+// =============================================================================
+let bolPasta = 'para_enviar';
+
+async function fetchBoletos() {
+    const lista = document.getElementById('bol-lista');
+    lista.innerHTML = `<p style="color:var(--text-muted);font-size:.85rem;">Carregando...</p>`;
+    try {
+        const data = await fetch(`${API_URL}/boletos?pasta=${bolPasta}`).then(r => r.json());
+        if (data.error) throw new Error(data.error);
+
+        const total = data.total || 0;
+        document.getElementById('bol-contador').textContent =
+            total === 0 ? 'Nenhum boleto nesta pasta.'
+                        : `${total} boleto${total > 1 ? 's' : ''} encontrado${total > 1 ? 's' : ''}`;
+
+        if (total === 0) {
+            lista.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:.85rem;">
+                Pasta vazia.</div>`;
+            resetPreview();
+            return;
+        }
+
+        lista.innerHTML = '';
+        data.arquivos.forEach(arq => {
+            const item = document.createElement('div');
+            item.className = 'bol-file-item';
+            item.dataset.url  = arq.url;
+            item.dataset.nome = arq.nome;
+            item.innerHTML = `
+                <svg class="bol-pdf-icon" width="22" height="22" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                </svg>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:.78rem;font-weight:600;color:white;
+                                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                         title="${arq.nome}">${arq.nome}</div>
+                    <div style="font-size:.7rem;color:var(--text-muted);margin-top:3px;display:flex;gap:10px;">
+                        ${arq.cpf      ? `<span>CPF: ${arq.cpf}</span>` : ''}
+                        ${arq.vencimento ? `<span>Venc: ${arq.vencimento}</span>` : ''}
+                        <span>${arq.tamanho_kb} KB</span>
+                    </div>
+                    <div style="font-size:.68rem;color:#475569;margin-top:2px;">${arq.modificado}</div>
+                </div>
+                <a href="${arq.url}" target="_blank" title="Abrir em nova aba"
+                   style="color:#475569;flex-shrink:0;"
+                   onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color='#475569'"
+                   onclick="event.stopPropagation()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                </a>`;
+            item.addEventListener('click', () => abrirPreview(arq, item));
+            lista.appendChild(item);
+        });
+
+        // Abre automaticamente o primeiro
+        if (data.arquivos.length > 0) {
+            const primeiro = lista.querySelector('.bol-file-item');
+            if (primeiro) abrirPreview(data.arquivos[0], primeiro);
+        }
+    } catch (e) {
+        lista.innerHTML = `<p style="color:#ef4444;font-size:.85rem;">Erro: ${e.message}</p>`;
+    }
+}
+
+function abrirPreview(arq, itemEl) {
+    // Marca selecionado
+    document.querySelectorAll('.bol-file-item').forEach(el => el.classList.remove('bol-selected'));
+    itemEl.classList.add('bol-selected');
+
+    const placeholder = document.getElementById('bol-preview-placeholder');
+    const iframe      = document.getElementById('bol-iframe');
+    const actions     = document.getElementById('bol-preview-actions');
+    const nomeEl      = document.getElementById('bol-preview-nome');
+    const linkEl      = document.getElementById('bol-preview-link');
+
+    placeholder.style.display = 'none';
+    iframe.style.display      = 'block';
+    iframe.src                = arq.url;
+
+    actions.style.display  = 'flex';
+    nomeEl.textContent     = arq.nome;
+    linkEl.href            = arq.url;
+}
+
+function resetPreview() {
+    document.getElementById('bol-preview-placeholder').style.display = 'flex';
+    const iframe = document.getElementById('bol-iframe');
+    iframe.style.display = 'none';
+    iframe.src = '';
+    document.getElementById('bol-preview-actions').style.display = 'none';
+}
+
+// Troca de pasta
+document.getElementById('bol-pasta-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.bol-pasta-tab');
+    if (!btn) return;
+    document.querySelectorAll('.bol-pasta-tab').forEach(b => b.classList.remove('bol-ativa'));
+    btn.classList.add('bol-ativa');
+    bolPasta = btn.dataset.pasta;
+    resetPreview();
+    fetchBoletos();
+});
+
+fetchBoletos();
+
+// =============================================================================
 // COBRANÇA OPERACIONAL
 // =============================================================================
 let cobFiltro  = 'todos';

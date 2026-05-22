@@ -117,6 +117,47 @@ def download_pdf(pasta, nome_arquivo):
     return jsonify({"error": "Arquivo nao encontrado."}), 404
 
 
+@app.route("/api/boletos", methods=["GET"])
+def listar_boletos():
+    """Lista PDFs de uma pasta com metadados extraídos do nome do arquivo."""
+    pasta_key = request.args.get("pasta", "para_enviar")
+    if pasta_key not in PASTA_BOLETOS:
+        return jsonify({"error": "Pasta invalida."}), 400
+
+    pasta = PASTA_BOLETOS[pasta_key]
+    if not os.path.exists(pasta):
+        return jsonify({"arquivos": [], "pasta": pasta_key}), 200
+
+    arquivos = []
+    for f in sorted(glob.glob(os.path.normpath(os.path.join(pasta, "*.pdf"))),
+                    key=os.path.getmtime, reverse=True):
+        nome = os.path.basename(f)
+        stat = os.stat(f)
+
+        # Extrai CPF e vencimento do nome: Boleto_{CPF}_Venc-DD-MM-YYYY.pdf
+        cpf_mask   = ""
+        vencimento = ""
+        m = re.search(r"Boleto_(\d+)_", nome)
+        if m:
+            cpf = m.group(1)
+            cpf_mask = (f"{cpf[:3]}.***.***-{cpf[-2:]}"
+                        if len(cpf) == 11 else cpf)
+        mv = re.search(r"Venc[_-]?(\d{2})[_-](\d{2})[_-](\d{4})", nome)
+        if mv:
+            vencimento = f"{mv.group(1)}/{mv.group(2)}/{mv.group(3)}"
+
+        arquivos.append({
+            "nome":        nome,
+            "cpf":         cpf_mask,
+            "vencimento":  vencimento,
+            "tamanho_kb":  round(stat.st_size / 1024, 1),
+            "modificado":  datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y %H:%M"),
+            "url":         f"/api/download/{pasta_key}/{nome}",
+        })
+
+    return jsonify({"arquivos": arquivos, "pasta": pasta_key, "total": len(arquivos)})
+
+
 def _carregar_clientes_csv():
     """Lê o CSV e retorna lista de dicts enriquecidos com status do banco."""
     import pandas as pd
