@@ -379,7 +379,7 @@ function renderPaginacaoClientes(total, offset, busca) {
 // =============================================================================
 // ROTEADOR DE PÁGINAS (hash-based)
 // =============================================================================
-const PAGINAS_VALIDAS = ['visao-geral', 'clientes', 'boletos', 'cobranca', 'historico'];
+const PAGINAS_VALIDAS = ['visao-geral', 'clientes', 'boletos', 'cobranca', 'efetividade', 'historico'];
 
 function routeTo(pagina) {
     if (!PAGINAS_VALIDAS.includes(pagina)) pagina = 'visao-geral';
@@ -399,11 +399,12 @@ function routeTo(pagina) {
 
     // Atualiza título da aba
     const nomes = {
-        'visao-geral': 'Visão Geral',
-        'clientes':    'Clientes',
-        'boletos':     'Boletos',
-        'cobranca':    'Cobrança',
-        'historico':   'Histórico',
+        'visao-geral':  'Visão Geral',
+        'clientes':     'Clientes',
+        'boletos':      'Boletos',
+        'cobranca':     'Cobrança',
+        'efetividade':  'Efetividade',
+        'historico':    'Histórico',
     };
     document.title = `${nomes[pagina] || pagina} | Consórcio Yamaha`;
 }
@@ -435,6 +436,122 @@ document.getElementById('clientes-refresh').addEventListener('click', () => {
 document.getElementById('empresa-select').addEventListener('change', () => {
     fetchClientes(document.getElementById('clientes-search').value.trim(), 0);
 });
+
+// =============================================================================
+// EFETIVIDADE DAS CAMPANHAS
+// =============================================================================
+let efPeriodo = 0;
+
+function funilBar(label, valor, total, cor, descricao) {
+    const pct = total > 0 ? Math.round(valor / total * 100) : 0;
+    const largura = Math.max(pct, 2);
+    return `
+    <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+            <span style="font-size:.8rem;color:white;font-weight:500;">${label}</span>
+            <span style="font-size:.8rem;color:var(--text-muted);">${valor.toLocaleString('pt-BR')}
+                <strong style="color:${cor};">(${pct}%)</strong></span>
+        </div>
+        <div style="height:10px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden;">
+            <div style="width:${largura}%;height:100%;background:${cor};border-radius:5px;
+                        transition:width .6s ease;"></div>
+        </div>
+        <p style="font-size:.7rem;color:#475569;margin:4px 0 0;">${descricao}</p>
+    </div>`;
+}
+
+async function fetchEfetividade() {
+    try {
+        const data = await fetch(`${API_URL}/efetividade?periodo=${efPeriodo}`)
+            .then(r => r.json());
+        if (data.error) throw new Error(data.error);
+
+        const total    = data.total_clientes || 0;
+        const prazo    = data.pagaram_prazo  || 0;
+        const cobr     = data.cobrados       || 0;
+        const ia       = data.recuperados_ia || 0;
+        const maturos  = data.maturos        || 0;
+
+        // ── KPI cards ──────────────────────────────────────────────────────────
+        document.getElementById('ef-total').textContent    = total.toLocaleString('pt-BR');
+        document.getElementById('ef-prazo').textContent    = prazo.toLocaleString('pt-BR');
+        document.getElementById('ef-cobrados').textContent = cobr.toLocaleString('pt-BR');
+        document.getElementById('ef-ia').textContent       = ia.toLocaleString('pt-BR');
+
+        document.getElementById('ef-prazo-pct').textContent =
+            maturos > 0 ? `${data.taxa_prazo_pct}% dos boletos maduros` : 'sem boletos maduros ainda';
+        document.getElementById('ef-cobrados-pct').textContent =
+            maturos > 0 ? `${data.taxa_cobranca_pct}% dos boletos maduros` : '—';
+        document.getElementById('ef-ia-pct').textContent =
+            cobr > 0 ? `${data.taxa_ia_pct}% dos cobrados confirmaram` : '—';
+
+        // ── Funil ──────────────────────────────────────────────────────────────
+        document.getElementById('ef-funil-avisos').innerHTML = funilBar(
+            'Avisos D-7 / D-1 enviados', total, total,
+            '#60a5fa', 'total de clientes que receberam ao menos um aviso');
+
+        document.getElementById('ef-funil-prazo').innerHTML = funilBar(
+            'Pagaram no prazo', prazo, total,
+            '#34d399', 'boletos quitados sem precisar de cobrança D+2');
+
+        document.getElementById('ef-funil-cobrados').innerHTML = funilBar(
+            'Precisaram de cobrança D+2', cobr, total,
+            '#fb923c', 'não pagaram até o vencimento + prazo de tolerância');
+
+        document.getElementById('ef-funil-ia').innerHTML = funilBar(
+            'Recuperados via WhatsApp IA', ia, total,
+            '#a78bfa', 'confirmaram pagamento respondendo ao bot');
+
+        // ── Tabela mensal ──────────────────────────────────────────────────────
+        const tbody = document.getElementById('ef-tabela-mensal');
+        const tend  = data.tendencia_mensal || [];
+        if (tend.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center"
+                style="color:var(--text-muted);">Sem dados no período selecionado.</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = '';
+        // Exibe em ordem cronológica inversa (mais recente primeiro)
+        [...tend].reverse().forEach(row => {
+            const taxaCor = row.taxa_pct >= 70 ? '#34d399'
+                          : row.taxa_pct >= 50 ? '#fbbf24' : '#f87171';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:600;color:white;">${row.mes}</td>
+                <td>${row.total.toLocaleString('pt-BR')}</td>
+                <td style="color:#34d399;">${row.pagaram_prazo.toLocaleString('pt-BR')}</td>
+                <td style="color:#fb923c;">${row.cobrados.toLocaleString('pt-BR')}</td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="width:70px;height:6px;background:rgba(255,255,255,.08);
+                                    border-radius:3px;overflow:hidden;">
+                            <div style="width:${row.taxa_pct}%;height:100%;
+                                        background:${taxaCor};border-radius:3px;"></div>
+                        </div>
+                        <strong style="color:${taxaCor};font-size:.85rem;">${row.taxa_pct}%</strong>
+                    </div>
+                </td>`;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        console.error('fetchEfetividade', e);
+        document.getElementById('ef-tabela-mensal').innerHTML =
+            `<tr><td colspan="5" class="text-center" style="color:#ef4444;">Erro: ${e.message}</td></tr>`;
+    }
+}
+
+// Troca de período
+document.getElementById('ef-periodo-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('.cob-tab');
+    if (!btn) return;
+    document.querySelectorAll('#ef-periodo-tabs .cob-tab')
+        .forEach(b => b.classList.remove('cob-active'));
+    btn.classList.add('cob-active');
+    efPeriodo = parseInt(btn.dataset.periodo);
+    fetchEfetividade();
+});
+
+fetchEfetividade();
 
 // =============================================================================
 // BOLETOS VIEWER

@@ -360,6 +360,147 @@ def webhook_sunchat():
 
 
 # =============================================================================
+# EFETIVIDADE DAS CAMPANHAS
+# =============================================================================
+def _calcular_efetividade(periodo_dias: int = 0) -> dict:
+    """
+    Métricas de efetividade das campanhas de aviso e cobrança.
+
+    Definições:
+      - maturos        : clientes com D-1 enviado cujo vencimento passou
+                         >= DIAS_APOS_VENC_PARA_COBRAR dias (cobrador já avaliou)
+      - pagaram_prazo  : maturos SEM Cobrança enviada (pagaram sem precisar de D+2)
+      - cobrados       : maturos COM Cobrança enviada
+      - recuperados_ia : confirmações de pagamento via WhatsApp (pagamentos_informados)
+    """
+    from datetime import timedelta
+
+    _M = ["","Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+    hoje = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = hoje - timedelta(days=periodo_dias) if periodo_dias > 0 else None
+
+    rows = db.dados_para_efetividade()
+
+    # ── Agrupa por arquivo ─────────────────────────────────────────────────────
+    por_arquivo: dict = {}
+    for r in rows:
+        arq = r["arquivo"]
+        if arq not in por_arquivo:
+            por_arquivo[arq] = {
+                "vencimento": r["vencimento"] or "",
+                "tipos_ok":   set(),   # tipo_disparo com status=Enviado
+                "data_d1":    "",
+            }
+        e = por_arquivo[arq]
+        if r["status"] == "Enviado":
+            e["tipos_ok"].add(r["tipo_disparo"])
+        if r["tipo_disparo"] == "D-1" and r["status"] == "Enviado":
+            d = r["data_disparo"] or ""
+            if d > e["data_d1"]:
+                e["data_d1"] = d
+
+    # ── Filtro de período (pela data do D-1) ───────────────────────────────────
+    if cutoff:
+        filtrados: dict = {}
+        for arq, e in por_arquivo.items():
+            if not e["data_d1"]:
+                continue
+            try:
+                dt = datetime.strptime(e["data_d1"][:10], "%d/%m/%Y")
+                if dt >= cutoff:
+                    filtrados[arq] = e
+            except Exception:
+                pass
+        por_arquivo = filtrados
+
+    # ── Contadores ────────────────────────────────────────────────────────────
+    total_d1     = 0
+    pagaram_prazo = 0
+    cobrados      = 0
+    por_mes: dict = {}
+
+    for e in por_arquivo.values():
+        if "D-1" not in e["tipos_ok"]:
+            continue
+        total_d1 += 1
+
+        # Mês do D-1 (para tendência)
+        mes_chave = "9999/99"
+        mes_label = "—"
+        if e["data_d1"]:
+            try:
+                d, m, y = e["data_d1"][:10].split("/")
+                mes_chave = f"{y}/{m}"
+                mes_label = f"{_M[int(m)]}/{y[2:]}"
+            except Exception:
+                pass
+
+        if mes_chave not in por_mes:
+            por_mes[mes_chave] = {"label": mes_label, "total": 0, "cobrados": 0}
+        por_mes[mes_chave]["total"] += 1
+
+        # Verifica maturidade (cobrador já deveria ter avaliado este boleto)
+        maduro = False
+        venc_str = e["vencimento"]
+        if venc_str:
+            try:
+                venc_dt = datetime.strptime(venc_str, "%d/%m/%Y").replace(
+                    hour=0, minute=0, second=0, microsecond=0)
+                maduro = (hoje - venc_dt).days >= DIAS_APOS_VENC_PARA_COBRAR
+            except Exception:
+                pass
+
+        if "Cobranca" in e["tipos_ok"]:
+            cobrados += 1
+            por_mes[mes_chave]["cobrados"] += 1
+        elif maduro:
+            pagaram_prazo += 1
+
+    # ── Recuperados via IA ────────────────────────────────────────────────────
+    recuperados_ia = len(db.listar_pagamentos())
+
+    # ── Taxas ────────────────────────────────────────────────────────────────
+    maturos = pagaram_prazo + cobrados
+    pct = lambda n, d: round(n / d * 100, 1) if d > 0 else 0
+
+    # ── Tendência mensal ──────────────────────────────────────────────────────
+    tendencia = []
+    for k in sorted(por_mes.keys()):
+        v = por_mes[k]
+        pp = max(v["total"] - v["cobrados"], 0)
+        tendencia.append({
+            "mes":           v["label"],
+            "total":         v["total"],
+            "pagaram_prazo": pp,
+            "cobrados":      v["cobrados"],
+            "taxa_pct":      pct(pp, v["total"]),
+        })
+
+    return {
+        "periodo_dias":       periodo_dias,
+        "total_clientes":     total_d1,
+        "maturos":            maturos,
+        "pagaram_prazo":      pagaram_prazo,
+        "cobrados":           cobrados,
+        "recuperados_ia":     recuperados_ia,
+        "taxa_prazo_pct":     pct(pagaram_prazo, maturos),
+        "taxa_cobranca_pct":  pct(cobrados,       maturos),
+        "taxa_ia_pct":        pct(recuperados_ia, cobrados),
+        "tendencia_mensal":   tendencia,
+    }
+
+
+@app.route("/api/efetividade", methods=["GET"])
+def get_efetividade():
+    """Relatório de efetividade das campanhas de aviso e cobrança."""
+    try:
+        periodo = int(request.args.get("periodo", 0))
+        return jsonify(_calcular_efetividade(periodo))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
 # COBRANÇA OPERACIONAL
 # =============================================================================
 def _csv_get(dados, col: str, default: str = "") -> str:
