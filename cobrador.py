@@ -18,6 +18,7 @@ from config import TOKEN_SUNCHAT, DIAS_APOS_VENC_PARA_COBRAR
 import db
 from utils import limpar_telefone
 from logger import log
+from cny_client import iniciar_sessao, encerrar_sessao, verificar_boleto_pago
 
 ARQUIVO_CSV = "relatorio_microwork_consorcio.csv"
 MODULO = "Cobrador"
@@ -99,50 +100,80 @@ def executar_cobranca():
     log(f"{len(pendentes)} boleto(s) elegivel(is) para cobranca.", modulo=MODULO)
     mapa_clientes = carregar_mapa_clientes()
 
-    cobrados = 0
-    erros    = 0
+    # ── Abre sessão CNY para verificar pagamentos antes de cobrar ─────────────
+    driver_cny, wait_cny = iniciar_sessao()
+    if driver_cny is None:
+        log("Nao foi possivel abrir sessao CNY — cobrancas prosseguem sem verificacao.", "WARNING", MODULO)
 
-    for entrada in pendentes:
-        arquivo    = entrada.get("arquivo", "")
-        vencimento = entrada.get("vencimento", "")
-        nome_hist  = entrada.get("nome", "Cliente")
-        cpf_hist   = entrada.get("cpf", "")
+    cobrados    = 0
+    erros       = 0
+    ja_pagos    = 0
+    pulados_ia  = 0
 
-        try:
-            cpf_limpo = arquivo.split("_")[1]
-        except Exception:
-            cpf_limpo = ""
+    try:
+        for entrada in pendentes:
+            arquivo    = entrada.get("arquivo", "")
+            vencimento = entrada.get("vencimento", "")
+            nome_hist  = entrada.get("nome", "Cliente")
+            cpf_hist   = entrada.get("cpf", "")
 
-        dados = mapa_clientes.get(cpf_limpo)
-        if not dados:
-            log(f"CPF sem cadastro/celular para cobranca: {arquivo}", "WARNING", MODULO)
-            registrar_cobranca(nome_hist, cpf_hist, vencimento, arquivo,
-                               "Erro", "Sem cadastro/celular")
-            erros += 1
-            continue
+            try:
+                cpf_limpo = arquivo.split("_")[1]
+            except Exception:
+                cpf_limpo = ""
 
-        nome     = dados["nome"]
-        telefone = dados["telefone"]
+            dados = mapa_clientes.get(cpf_limpo)
+            if not dados:
+                log(f"CPF sem cadastro/celular para cobranca: {arquivo}", "WARNING", MODULO)
+                registrar_cobranca(nome_hist, cpf_hist, vencimento, arquivo,
+                                   "Erro", "Sem cadastro/celular")
+                erros += 1
+                continue
 
-        # Pula se cliente já informou pagamento via WhatsApp (IA)
-        if db.telefone_ja_pagou(telefone):
-            log(f"Cliente ja informou pagamento via WhatsApp, pulando: {nome}", modulo=MODULO)
-            continue
+            nome     = dados["nome"]
+            telefone = dados["telefone"]
 
-        log(f"Cobrando {nome} ({telefone}) | venc {vencimento}", modulo=MODULO)
+            # Pula se cliente já informou pagamento via WhatsApp (IA)
+            if db.telefone_ja_pagou(telefone):
+                log(f"Cliente ja informou pagamento via WhatsApp, pulando: {nome}", modulo=MODULO)
+                pulados_ia += 1
+                continue
 
-        if enviar_cobranca(telefone, nome, vencimento):
-            log(f"Cobranca enviada: {arquivo}", "SUCCESS", MODULO)
-            registrar_cobranca(nome, cpf_hist, vencimento, arquivo, "Enviado")
-            cobrados += 1
-        else:
-            log(f"Falha na cobranca: {arquivo}", "ERROR", MODULO)
-            registrar_cobranca(nome, cpf_hist, vencimento, arquivo, "Erro", "Falha no envio")
-            erros += 1
+            # ── Verifica no portal CNY se o boleto já foi liquidado ────────────
+            if driver_cny is not None:
+                try:
+                    pago_cny = verificar_boleto_pago(driver_cny, wait_cny, cpf_limpo, vencimento)
+                except Exception as e:
+                    log(f"Erro inesperado na verificacao CNY ({nome}): {e}", "WARNING", MODULO)
+                    pago_cny = False
 
-        time.sleep(3)
+                if pago_cny:
+                    log(f"Boleto ja liquidado no CNY — pulando cobranca: {nome} venc {vencimento}", "SUCCESS", MODULO)
+                    ja_pagos += 1
+                    continue
 
-    log(f"Cobrancas enviadas: {cobrados} | Erros: {erros}", "SUCCESS", MODULO)
+            log(f"Cobrando {nome} ({telefone}) | venc {vencimento}", modulo=MODULO)
+
+            if enviar_cobranca(telefone, nome, vencimento):
+                log(f"Cobranca enviada: {arquivo}", "SUCCESS", MODULO)
+                registrar_cobranca(nome, cpf_hist, vencimento, arquivo, "Enviado")
+                cobrados += 1
+            else:
+                log(f"Falha na cobranca: {arquivo}", "ERROR", MODULO)
+                registrar_cobranca(nome, cpf_hist, vencimento, arquivo, "Erro", "Falha no envio")
+                erros += 1
+
+            time.sleep(3)
+
+    finally:
+        if driver_cny is not None:
+            encerrar_sessao(driver_cny)
+
+    log(
+        f"Cobrancas enviadas: {cobrados} | Ja pagos (CNY): {ja_pagos} | "
+        f"Pulados (IA): {pulados_ia} | Erros: {erros}",
+        "SUCCESS", MODULO,
+    )
 
 
 if __name__ == "__main__":
