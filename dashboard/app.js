@@ -376,6 +376,45 @@ function renderPaginacaoClientes(total, offset, busca) {
     }
 }
 
+// =============================================================================
+// ROTEADOR DE PÁGINAS (hash-based)
+// =============================================================================
+const PAGINAS_VALIDAS = ['visao-geral', 'clientes', 'boletos', 'cobranca', 'historico'];
+
+function routeTo(pagina) {
+    if (!PAGINAS_VALIDAS.includes(pagina)) pagina = 'visao-geral';
+
+    // Mostra/esconde seções
+    document.querySelectorAll('.page-section').forEach(s => s.classList.remove('page-ativa'));
+    const alvo = document.getElementById(pagina);
+    if (alvo) alvo.classList.add('page-ativa');
+
+    // Atualiza sidebar
+    document.querySelectorAll('.menu-item').forEach(a => {
+        a.classList.toggle('active', a.dataset.page === pagina);
+    });
+
+    // Sobe para o topo do conteúdo
+    document.querySelector('.content')?.scrollTo({ top: 0, behavior: 'instant' });
+
+    // Atualiza título da aba
+    const nomes = {
+        'visao-geral': 'Visão Geral',
+        'clientes':    'Clientes',
+        'boletos':     'Boletos',
+        'cobranca':    'Cobrança',
+        'historico':   'Histórico',
+    };
+    document.title = `${nomes[pagina] || pagina} | Consórcio Yamaha`;
+}
+
+function paginaAtual() {
+    const hash = window.location.hash.replace('#', '').trim();
+    return PAGINAS_VALIDAS.includes(hash) ? hash : 'visao-geral';
+}
+
+window.addEventListener('hashchange', () => routeTo(paginaAtual()));
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 updateDashboard();
 fetchLogs();
@@ -730,3 +769,6 @@ document.getElementById('cob-search').addEventListener('input', e => {
 
 // Carrega junto com o dashboard
 fetchCobranca();
+
+// Ativa a página correta (roda por último, depois de todos os listeners)
+routeTo(paginaAtual());
