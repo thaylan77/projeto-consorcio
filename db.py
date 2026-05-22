@@ -216,6 +216,58 @@ def stats_do_dia() -> dict:
     }
 
 
+def score_risco_por_cpf() -> dict:
+    """
+    Calcula score de risco de inadimplência por CPF com base no histórico de disparos.
+
+    Lógica:
+      - Crítico  : teve Cobrança D+2 com status Erro (não pagou mesmo após cobrança)
+      - Alto     : teve Cobrança D+2 enviada com sucesso
+      - Médio    : recebeu D-1 mas não precisou de cobrança (pagou no prazo)
+      - Baixo    : só recebeu D-7, pagou antes do lembrete final
+      - Novo     : sem histórico ainda
+
+    Retorna {cpf: {"score": str, "contagem": {tipo: n}}}
+    """
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT arquivo, tipo_disparo, status FROM disparos"
+        ).fetchall()
+
+    historico: dict[str, dict] = {}
+    for r in rows:
+        m = re.search(r"Boleto_(\d+)_", r["arquivo"])
+        if not m:
+            continue
+        cpf = m.group(1)
+        if cpf not in historico:
+            historico[cpf] = {}
+        tipo = r["tipo_disparo"]
+        status = r["status"]
+        chave = f"{tipo}_{status}"
+        historico[cpf][chave] = historico[cpf].get(chave, 0) + 1
+
+    resultado = {}
+    for cpf, contagem in historico.items():
+        tipos_enviados = {k.split("_")[0] for k, v in contagem.items() if "Enviado" in k}
+        teve_cobranca_erro = contagem.get("Cobranca_Erro", 0) > 0
+
+        if teve_cobranca_erro:
+            score = "Critico"
+        elif "Cobranca" in tipos_enviados:
+            score = "Alto"
+        elif "D-1" in tipos_enviados:
+            score = "Medio"
+        elif "D-7" in tipos_enviados:
+            score = "Baixo"
+        else:
+            score = "Novo"
+
+        resultado[cpf] = {"score": score, "contagem": contagem}
+
+    return resultado
+
+
 def status_por_cpf() -> dict:
     """
     Retorna {cpf: {tipo_disparo, status, vencimento}} com o último disparo

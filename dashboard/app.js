@@ -212,6 +212,45 @@ runBtn.addEventListener('click', runSystem);
 cobradorBtn.addEventListener('click', runCobrador);
 iaBtn.addEventListener('click', runIA);
 
+// ── Empresas / Filiais ────────────────────────────────────────────────────────
+async function fetchEmpresas() {
+    try {
+        const data = await fetch(`${API_URL}/empresas`).then(r => r.json());
+        const select = document.getElementById('empresa-select');
+        const cards  = document.getElementById('empresas-cards');
+
+        // Popula select de filial
+        select.innerHTML = '<option value="">Todas</option>';
+        data.forEach(e => {
+            const opt = document.createElement('option');
+            opt.value = e.empresa;
+            opt.textContent = `${e.empresa} (${e.total})`;
+            select.appendChild(opt);
+        });
+
+        // Cards de resumo por filial
+        cards.innerHTML = '';
+        data.forEach(e => {
+            const altoRiscoColor = e.alto_risco > 0 ? '#f87171' : '#64748b';
+            cards.innerHTML += `
+            <div style="background:rgba(30,41,59,0.7);border:1px solid var(--border);border-radius:8px;
+                padding:10px 16px;font-size:0.78rem;cursor:pointer;min-width:160px;"
+                onclick="filtrarPorEmpresa('${e.empresa}')">
+                <div style="font-weight:600;color:white;margin-bottom:6px;">${e.empresa}</div>
+                <div style="color:var(--text-muted);">Total: <strong style="color:#60a5fa;">${e.total}</strong></div>
+                <div style="color:var(--text-muted);">Disparados: <strong style="color:#34d399;">${e.disparados}</strong></div>
+                <div style="color:var(--text-muted);">Pendentes: <strong style="color:#fbbf24;">${e.pendentes}</strong></div>
+                <div style="color:var(--text-muted);">Alto risco: <strong style="color:${altoRiscoColor};">${e.alto_risco}</strong></div>
+            </div>`;
+        });
+    } catch(e) { console.error('fetchEmpresas', e); }
+}
+
+function filtrarPorEmpresa(nome) {
+    document.getElementById('empresa-select').value = nome;
+    fetchClientes('', 0);
+}
+
 // ── Clientes ─────────────────────────────────────────────────────────────────
 let clientesData = [];
 let clientesOffset = 0;
@@ -219,9 +258,10 @@ const CLIENTES_LIMITE = 50;
 
 async function fetchClientes(busca = '', offset = 0) {
     const tbody = document.getElementById('clientes-tbody');
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center" style="color:var(--text-muted);">Carregando...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="text-center" style="color:var(--text-muted);">Carregando...</td></tr>`;
     try {
-        const params = new URLSearchParams({ limite: CLIENTES_LIMITE, offset, q: busca });
+        const empresa = document.getElementById('empresa-select')?.value || '';
+        const params = new URLSearchParams({ limite: CLIENTES_LIMITE, offset, q: busca, empresa });
         const res  = await fetch(`${API_URL}/clientes?${params}`);
         const data = await res.json();
 
@@ -240,6 +280,9 @@ async function fetchClientes(busca = '', offset = 0) {
         document.getElementById('cli-disparados').textContent = data.disparados || 0;
         document.getElementById('cli-pendentes').textContent  = data.pendentes  || 0;
         document.getElementById('cli-pagos').textContent      = data.pagos      || 0;
+        const score = data.por_score || {};
+        document.getElementById('cli-alto-risco').textContent =
+            (score['Alto'] || 0) + (score['Critico'] || 0);
 
         renderClientes(clientesData);
         renderPaginacaoClientes(total, offset, busca);
@@ -282,10 +325,18 @@ function formatMoeda(val) {
     return 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
 }
 
+const SCORE_BADGE = {
+    'Critico': '<span style="background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);border-radius:5px;padding:2px 7px;font-size:0.72rem;font-weight:700;">Crítico</span>',
+    'Alto':    '<span style="background:rgba(249,115,22,0.15);color:#fb923c;border:1px solid rgba(249,115,22,0.3);border-radius:5px;padding:2px 7px;font-size:0.72rem;font-weight:700;">Alto</span>',
+    'Medio':   '<span style="background:rgba(245,158,11,0.12);color:#fbbf24;border:1px solid rgba(245,158,11,0.25);border-radius:5px;padding:2px 7px;font-size:0.72rem;">Médio</span>',
+    'Baixo':   '<span style="background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.25);border-radius:5px;padding:2px 7px;font-size:0.72rem;">Baixo</span>',
+    'Novo':    '<span style="color:#64748b;font-size:0.72rem;">Novo</span>',
+};
+
 function renderClientes(data) {
     const tbody = document.getElementById('clientes-tbody');
     if (!data || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center">Nenhum cliente encontrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center">Nenhum cliente encontrado.</td></tr>`;
         return;
     }
     tbody.innerHTML = '';
@@ -297,12 +348,13 @@ function renderClientes(data) {
                 <span style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px;">${c.cpf}</span>
             </td>
             <td style="color:var(--text-muted);font-size:0.82rem;">${formatTel(c.telefone)}</td>
+            <td style="font-size:0.78rem;color:var(--text-muted);">${c.empresa || '—'}</td>
             <td style="font-size:0.82rem;">${c.contrato || c.proposta || '—'}</td>
-            <td style="font-size:0.82rem;color:var(--text-muted);">${c.modelo || '—'}</td>
-            <td style="font-size:0.82rem;color:var(--text-muted);">${c.datavenda || '—'}</td>
+            <td style="font-size:0.78rem;color:var(--text-muted);">${c.modelo || '—'}</td>
             <td style="font-size:0.82rem;">${formatMoeda(c.valorcredito)}</td>
             <td style="font-size:0.85rem;">${c.vencimento || '—'}</td>
-            <td>${statusClienteBadge(c)}</td>`;
+            <td>${statusClienteBadge(c)}</td>
+            <td>${SCORE_BADGE[c.score_risco] || SCORE_BADGE['Novo']}</td>`;
         tbody.appendChild(tr);
     });
 }
@@ -327,7 +379,7 @@ function renderPaginacaoClientes(total, offset, busca) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 updateDashboard();
 fetchLogs();
-fetchClientes();
+fetchEmpresas().then(() => fetchClientes());
 setInterval(updateDashboard, 30000);
 setInterval(fetchLogs, 5000);
 
@@ -337,5 +389,10 @@ document.getElementById('clientes-search').addEventListener('input', e => {
     window._cliSearchTimer = setTimeout(() => fetchClientes(e.target.value.trim()), 400);
 });
 document.getElementById('clientes-refresh').addEventListener('click', () => {
-    fetchClientes(document.getElementById('clientes-search').value.trim());
+    fetchEmpresas().then(() =>
+        fetchClientes(document.getElementById('clientes-search').value.trim())
+    );
+});
+document.getElementById('empresa-select').addEventListener('change', () => {
+    fetchClientes(document.getElementById('clientes-search').value.trim(), 0);
 });

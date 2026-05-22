@@ -255,6 +255,14 @@
                 </div>
             </div>
 
+            <!-- Filtro de filial -->
+            <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <label style="font-size:0.82rem;color:var(--text-muted);">Filial:</label>
+                <select id="empresa-select" style="background:#1e293b;border:1px solid var(--border);color:var(--text-main);padding:6px 12px;border-radius:6px;font-size:0.82rem;cursor:pointer;">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+
             <!-- Resumo -->
             <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;" id="clientes-summary">
                 <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:10px 18px;font-size:0.85rem;">
@@ -269,6 +277,15 @@
                 <div style="background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:10px 18px;font-size:0.85rem;">
                     Pagos (IA): <strong id="cli-pagos" style="color:#6ee7b7;">—</strong>
                 </div>
+                <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px 18px;font-size:0.85rem;">
+                    Alto Risco: <strong id="cli-alto-risco" style="color:#f87171;">—</strong>
+                </div>
+            </div>
+
+            <!-- Tabela de filiais -->
+            <div id="empresas-section" style="margin-bottom:20px;">
+                <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:8px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;">Resumo por Filial</div>
+                <div id="empresas-cards" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
             </div>
 
             <div class="table-container">
@@ -278,12 +295,13 @@
                             <th>Cliente</th>
                             <th>CPF</th>
                             <th>Telefone</th>
+                            <th>Filial</th>
                             <th>Contrato</th>
                             <th>Modelo</th>
-                            <th>Venda</th>
                             <th>Crédito</th>
                             <th>Vencimento</th>
                             <th>Último Disparo</th>
+                            <th>Risco</th>
                         </tr>
                     </thead>
                     <tbody id="clientes-tbody">

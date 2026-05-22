@@ -116,88 +116,127 @@ def download_pdf(pasta, nome_arquivo):
     return jsonify({"error": "Arquivo nao encontrado."}), 404
 
 
+def _carregar_clientes_csv():
+    """Lê o CSV e retorna lista de dicts enriquecidos com status do banco."""
+    import pandas as pd
+    df = pd.read_csv(_ARQUIVO_CSV)
+    mapa_status = db.status_por_cpf()
+    mapa_score  = db.score_risco_por_cpf()
+    pagamentos  = {p["telefone"] for p in db.listar_pagamentos()}
+
+    clientes = []
+    for _, row in df.iterrows():
+        cpf_raw = re.sub(r"\D", "", str(row.get("pessoacpfcnpj", "")))
+        nome    = str(row.get("pessoa", "")).strip().title()
+        tel     = re.sub(r"\D", "", str(row.get("celularformatado", "")))
+
+        if not cpf_raw or not nome or nome in ("", "Nan"):
+            continue
+
+        if tel and not tel.startswith("55"):
+            tel = "55" + tel
+        if len(tel) == 12:
+            tel = tel[:4] + "9" + tel[4:]
+
+        cpf_mask = (f"{cpf_raw[:3]}.***.***-{cpf_raw[-2:]}"
+                    if len(cpf_raw) == 11 else cpf_raw)
+
+        extras = {}
+        for col in ("contrato", "proposta", "empresa", "modelo",
+                    "administradorareduzida", "pontovenda", "vendedor",
+                    "datavenda", "prazo", "valorprimeiraparcela", "valorcredito"):
+            if col in df.columns:
+                val = row.get(col, "")
+                extras[col] = "" if str(val) in ("nan", "None", "") else str(val)
+
+        disp  = mapa_status.get(cpf_raw, {})
+        risco = mapa_score.get(cpf_raw, {})
+        pago  = tel in pagamentos
+
+        clientes.append({
+            "nome":          nome,
+            "cpf":           cpf_mask,
+            "cpf_raw":       cpf_raw,
+            "telefone":      tel,
+            "ultimo_tipo":   disp.get("tipo_disparo", ""),
+            "ultimo_status": disp.get("status", ""),
+            "vencimento":    disp.get("vencimento", ""),
+            "pago":          pago,
+            "score_risco":   risco.get("score", "Novo"),
+            **extras,
+        })
+    return clientes
+
+
 @app.route("/api/clientes", methods=["GET"])
 def get_clientes():
-    """Retorna lista de clientes do CSV cruzada com status de disparos e pagamentos."""
+    """Retorna lista de clientes do CSV cruzada com status, score de risco e filial."""
     if not os.path.exists(_ARQUIVO_CSV):
         return jsonify({"clientes": [], "total": 0, "sem_csv": True}), 200
-
     try:
-        import pandas as pd
-        df = pd.read_csv(_ARQUIVO_CSV)
+        busca   = request.args.get("q", "").lower().strip()
+        empresa = request.args.get("empresa", "").strip()
+        limite  = min(int(request.args.get("limite", 200)), 1000)
+        offset  = int(request.args.get("offset", 0))
 
-        # Parâmetros
-        busca  = request.args.get("q", "").lower().strip()
-        limite = min(int(request.args.get("limite", 200)), 1000)
-        offset = int(request.args.get("offset", 0))
+        clientes = _carregar_clientes_csv()
 
-        # Status dos disparos e pagamentos já confirmados
-        mapa_status = db.status_por_cpf()
-        pagamentos  = {p["telefone"] for p in db.listar_pagamentos()}
-
-        clientes = []
-        for _, row in df.iterrows():
-            cpf_raw = re.sub(r"\D", "", str(row.get("pessoacpfcnpj", "")))
-            nome    = str(row.get("pessoa", "")).strip().title()
-            tel     = re.sub(r"\D", "", str(row.get("celularformatado", "")))
-
-            if not cpf_raw or not nome or nome in ("", "Nan"):
-                continue
-
-            # Normaliza telefone para conferir pagamentos
-            if tel and not tel.startswith("55"):
-                tel = "55" + tel
-            if len(tel) == 12:
-                tel = tel[:4] + "9" + tel[4:]
-
-            # CPF mascarado
-            cpf_mask = (f"{cpf_raw[:3]}.***.***-{cpf_raw[-2:]}"
-                        if len(cpf_raw) == 11 else cpf_raw)
-
-            # Coleta colunas extras que o CSV possa ter
-            extras = {}
-            for col in ("contrato", "proposta", "empresa", "modelo",
-                        "administradorareduzida", "pontovenda", "vendedor",
-                        "datavenda", "prazo", "valorprimeiraparcela", "valorcredito"):
-                if col in df.columns:
-                    val = row.get(col, "")
-                    extras[col] = "" if str(val) in ("nan", "None", "") else str(val)
-
-            # Status derivado do banco
-            disp = mapa_status.get(cpf_raw, {})
-            pago = tel in pagamentos
-
-            clientes.append({
-                "nome":          nome,
-                "cpf":           cpf_mask,
-                "telefone":      tel,
-                "ultimo_tipo":   disp.get("tipo_disparo", ""),
-                "ultimo_status": disp.get("status", ""),
-                "vencimento":    disp.get("vencimento", ""),
-                "pago":          pago,
-                **extras,
-            })
-
-        # Filtro por busca
+        # Filtros
+        if empresa:
+            clientes = [c for c in clientes if c.get("empresa", "") == empresa]
         if busca:
             clientes = [c for c in clientes if
                 busca in c["nome"].lower() or
                 busca in c["cpf"].lower() or
                 busca in c["telefone"] or
-                busca in c.get("numerocontrato", "").lower()]
+                busca in c.get("contrato", "").lower() or
+                busca in c.get("empresa", "").lower()]
 
-        total       = len(clientes)
-        disparados  = sum(1 for c in clientes if c["ultimo_tipo"])
-        pendentes   = sum(1 for c in clientes if not c["ultimo_tipo"] and not c["pago"])
-        pagos       = sum(1 for c in clientes if c["pago"])
+        total      = len(clientes)
+        disparados = sum(1 for c in clientes if c["ultimo_tipo"])
+        pendentes  = sum(1 for c in clientes if not c["ultimo_tipo"] and not c["pago"])
+        pagos      = sum(1 for c in clientes if c["pago"])
+        por_score  = {}
+        for c in clientes:
+            s = c["score_risco"]
+            por_score[s] = por_score.get(s, 0) + 1
+
+        # Remove cpf_raw do retorno (não expor dado bruto)
+        pagina = [{k: v for k, v in c.items() if k != "cpf_raw"}
+                  for c in clientes[offset: offset + limite]]
 
         return jsonify({
-            "total":      total,
-            "disparados": disparados,
-            "pendentes":  pendentes,
-            "pagos":      pagos,
-            "clientes":   clientes[offset: offset + limite],
+            "total": total, "disparados": disparados,
+            "pendentes": pendentes, "pagos": pagos,
+            "por_score": por_score,
+            "clientes":  pagina,
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/empresas", methods=["GET"])
+def get_empresas():
+    """Retorna lista de filiais com totais de clientes, disparados e score de risco."""
+    if not os.path.exists(_ARQUIVO_CSV):
+        return jsonify([]), 200
+    try:
+        clientes = _carregar_clientes_csv()
+        mapa: dict = {}
+        for c in clientes:
+            emp = c.get("empresa", "Sem filial") or "Sem filial"
+            if emp not in mapa:
+                mapa[emp] = {"empresa": emp, "total": 0, "disparados": 0,
+                             "pendentes": 0, "alto_risco": 0}
+            mapa[emp]["total"] += 1
+            if c["ultimo_tipo"]:
+                mapa[emp]["disparados"] += 1
+            if not c["ultimo_tipo"] and not c["pago"]:
+                mapa[emp]["pendentes"] += 1
+            if c["score_risco"] in ("Alto", "Critico"):
+                mapa[emp]["alto_risco"] += 1
+
+        return jsonify(sorted(mapa.values(), key=lambda x: x["total"], reverse=True))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
