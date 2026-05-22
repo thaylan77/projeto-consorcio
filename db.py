@@ -47,6 +47,33 @@ CREATE TABLE IF NOT EXISTS pagamentos_informados (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pagamentos_telefone ON pagamentos_informados(telefone);
+
+CREATE TABLE IF NOT EXISTS status_cny (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    cpf           TEXT NOT NULL,
+    vencimento    TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'em_aberto',
+    verificado_em TEXT NOT NULL,
+    UNIQUE(cpf, vencimento)
+);
+
+CREATE INDEX IF NOT EXISTS idx_status_cny ON status_cny(cpf, vencimento);
+
+CREATE TABLE IF NOT EXISTS tentativas_ligacao (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    cpf            TEXT NOT NULL,
+    vencimento     TEXT NOT NULL DEFAULT '',
+    arquivo        TEXT NOT NULL DEFAULT '',
+    nome           TEXT NOT NULL DEFAULT '',
+    resultado      TEXT NOT NULL,
+    observacao     TEXT NOT NULL DEFAULT '',
+    data_retorno   TEXT NOT NULL DEFAULT '',
+    operador       TEXT NOT NULL DEFAULT '',
+    data_tentativa TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_tentativas_cpf     ON tentativas_ligacao(cpf);
+CREATE INDEX IF NOT EXISTS idx_tentativas_retorno ON tentativas_ligacao(data_retorno);
 """
 
 
@@ -330,6 +357,95 @@ def telefone_ja_pagou(telefone: str) -> bool:
             "SELECT 1 FROM pagamentos_informados WHERE telefone=? LIMIT 1", (telefone,)
         ).fetchone()
     return row is not None
+
+
+# =============================================================================
+# STATUS CNY (polling de pagamentos)
+# =============================================================================
+def registrar_status_cny(cpf: str, vencimento: str, status: str) -> None:
+    with _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO status_cny (cpf, vencimento, status, verificado_em) "
+            "VALUES (?,?,?,?)",
+            (cpf, vencimento, status,
+             datetime.now().strftime("%d/%m/%Y %H:%M:%S")),
+        )
+
+
+def status_cny_mapa() -> dict:
+    """Retorna {(cpf, vencimento): {status, verificado_em}}."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT cpf, vencimento, status, verificado_em FROM status_cny"
+        ).fetchall()
+    return {(r["cpf"], r["vencimento"]): dict(r) for r in rows}
+
+
+# =============================================================================
+# TENTATIVAS DE LIGAÇÃO (cobrador humano)
+# =============================================================================
+def registrar_tentativa(cpf: str, vencimento: str, arquivo: str, nome: str,
+                         resultado: str, observacao: str = "",
+                         data_retorno: str = "", operador: str = "") -> int:
+    with _conn() as con:
+        cur = con.execute(
+            "INSERT INTO tentativas_ligacao "
+            "(cpf, vencimento, arquivo, nome, resultado, observacao, "
+            " data_retorno, operador, data_tentativa) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (cpf, vencimento, arquivo, nome, resultado, observacao,
+             data_retorno, operador,
+             datetime.now().strftime("%d/%m/%Y %H:%M:%S")),
+        )
+        return cur.lastrowid
+
+
+def listar_tentativas(cpf: str = "", limite: int = 200) -> list[dict]:
+    with _conn() as con:
+        if cpf:
+            rows = con.execute(
+                "SELECT * FROM tentativas_ligacao WHERE cpf=? ORDER BY id DESC LIMIT ?",
+                (cpf, limite),
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM tentativas_ligacao ORDER BY id DESC LIMIT ?",
+                (limite,),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def tentativas_hoje_count() -> int:
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    with _conn() as con:
+        return con.execute(
+            "SELECT COUNT(*) FROM tentativas_ligacao WHERE data_tentativa LIKE ?",
+            (f"{hoje}%",),
+        ).fetchone()[0]
+
+
+def ultima_tentativa_por_cpf() -> dict:
+    """Retorna {cpf: {resultado, data_tentativa, data_retorno}} com a tentativa mais recente."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT cpf, resultado, observacao, data_tentativa, data_retorno "
+            "FROM tentativas_ligacao WHERE id IN "
+            "(SELECT MAX(id) FROM tentativas_ligacao GROUP BY cpf)"
+        ).fetchall()
+    return {r["cpf"]: dict(r) for r in rows}
+
+
+def proximas_ligacoes_agendadas() -> list[dict]:
+    """Clientes com retorno agendado para hoje."""
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT cpf, vencimento, nome, arquivo, data_retorno "
+            "FROM tentativas_ligacao WHERE data_retorno=? "
+            "GROUP BY cpf HAVING MAX(id)=id",
+            (hoje,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def listar_pagamentos() -> list[dict]:

@@ -673,6 +673,25 @@ let cobFiltro  = 'todos';
 let cobOffset  = 0;
 const COB_LIMITE = 20;
 
+// ── Badge do status CNY ───────────────────────────────────────────────────────
+function cnyCelula(c) {
+    const cfg = {
+        'pago':         { cor: '#34d399', dot: '#34d399', label: 'Pago ✓'       },
+        'em_aberto':    { cor: '#f87171', dot: '#f87171', label: 'Em aberto'    },
+        'ignorado':     { cor: '#fbbf24', dot: '#fbbf24', label: 'Ignorado'     },
+        'erro':         { cor: '#94a3b8', dot: '#94a3b8', label: 'Erro'         },
+        'desconhecido': { cor: '#475569', dot: '#334155', label: '—'            },
+    };
+    const s   = cfg[c.status_cny] || cfg['desconhecido'];
+    const tip = c.cny_verificado ? `Verificado: ${c.cny_verificado}` : 'Nunca verificado';
+    return `<span title="${tip}" style="display:inline-flex;align-items:center;gap:5px;
+                font-size:.75rem;color:${s.cor};">
+        <span style="width:7px;height:7px;border-radius:50%;background:${s.dot};
+                     display:inline-block;flex-shrink:0;"></span>
+        ${s.label}
+    </span>`;
+}
+
 // ── Badges visuais ────────────────────────────────────────────────────────────
 function atrasoBadge(dias) {
     if (dias === 0)
@@ -751,14 +770,7 @@ function renderCobranca(clientes) {
             </td>
             <td>${atrasoBadge(c.dias_atraso)}</td>
             <td style="white-space:nowrap;">${enviosBadges(c.envios)}</td>
-            <td>
-                <span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;
-                             color:var(--text-muted);">
-                    <span style="width:7px;height:7px;border-radius:50%;display:inline-block;
-                                 background:${cnyCor};flex-shrink:0;"></span>
-                    Em aberto
-                </span>
-            </td>
+            <td>${cnyCelula(c)}</td>
             <td>${histBar(c.historico_pct)}</td>
             <td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;">
                 ${c.ultimo_contato || '—'}
@@ -790,6 +802,14 @@ function renderCobranca(clientes) {
             </td>`;
         tbody.appendChild(tr);
     });
+}
+
+// ── Verificar CNY ─────────────────────────────────────────────────────────────
+async function runVerifCNY() {
+    if (!confirm('Iniciar verificação de pagamentos no portal CNY?\n(Pode levar alguns minutos)')) return;
+    await _acaoAutenticada('run/verificador-cny', 'Verificar CNY',
+        document.getElementById('verif-cny-btn'));
+    setTimeout(fetchCobranca, 3000);  // recarrega a tabela após 3s
 }
 
 // ── 2ª via via WhatsApp ───────────────────────────────────────────────────────

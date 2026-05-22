@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0f172a">
+    <title>Cobrador | Socel Yamaha</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+        :root {
+            --bg:       #0f172a;
+            --surface:  #1e293b;
+            --border:   #334155;
+            --text:     #f1f5f9;
+            --muted:    #64748b;
+            --primary:  #3b82f6;
+            --green:    #22c55e;
+            --yellow:   #f59e0b;
+            --red:      #ef4444;
+            --purple:   #8b5cf6;
+        }
+
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, 'Segoe UI', sans-serif;
+               min-height: 100dvh; padding-bottom: 80px; }
+
+        /* ── Top bar ── */
+        .topbar {
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(15,23,42,.95); backdrop-filter: blur(8px);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 16px;
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        }
+        .topbar-brand { display: flex; align-items: center; gap: 8px; }
+        .topbar-brand span { font-weight: 700; font-size: 1rem; }
+        .topbar-badge {
+            background: rgba(59,130,246,.2); border: 1px solid rgba(59,130,246,.4);
+            border-radius: 20px; padding: 3px 10px; font-size: .75rem; color: #93c5fd;
+        }
+
+        /* ── Busca ── */
+        .search-wrap { padding: 12px 16px; }
+        .search-wrap input {
+            width: 100%; background: var(--surface); border: 1px solid var(--border);
+            border-radius: 10px; padding: 10px 14px; color: var(--text); font-size: .9rem;
+        }
+        .search-wrap input:focus { outline: none; border-color: var(--primary); }
+
+        /* ── Filtros ── */
+        .filters { display: flex; gap: 8px; padding: 0 16px 12px; overflow-x: auto; }
+        .filters::-webkit-scrollbar { display: none; }
+        .filter-btn {
+            flex-shrink: 0; background: var(--surface); border: 1px solid var(--border);
+            border-radius: 20px; padding: 5px 14px; color: var(--muted); font-size: .78rem;
+            cursor: pointer; white-space: nowrap; transition: all .15s;
+        }
+        .filter-btn.ativo { background: rgba(59,130,246,.15); border-color: var(--primary);
+                            color: #93c5fd; font-weight: 600; }
+
+        /* ── Cards ── */
+        .cards { display: flex; flex-direction: column; gap: 12px; padding: 0 16px; }
+
+        .card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 14px; overflow: hidden; transition: border-color .15s;
+        }
+        .card.card-retorno { border-color: rgba(245,158,11,.5);
+                             background: rgba(245,158,11,.05); }
+        .card.card-pago    { border-color: rgba(34,197,94,.4);
+                             background: rgba(34,197,94,.04); opacity: .7; }
+
+        .card-header {
+            padding: 14px 16px 10px;
+            display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+        }
+        .card-nome { font-size: 1rem; font-weight: 700; color: var(--text); }
+        .card-sub  { font-size: .75rem; color: var(--muted); margin-top: 3px; }
+
+        .card-valor {
+            text-align: right; flex-shrink: 0;
+        }
+        .card-valor .valor { font-size: 1.05rem; font-weight: 700; color: #f87171; }
+        .card-valor .atraso { font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+        .card-meta {
+            padding: 0 16px 10px;
+            display: flex; gap: 12px; flex-wrap: wrap; font-size: .72rem; color: var(--muted);
+        }
+        .card-meta .dot {
+            display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+            margin-right: 4px; vertical-align: middle;
+        }
+
+        .card-tel {
+            padding: 0 16px 12px;
+        }
+        .btn-ligar {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.4);
+            border-radius: 8px; padding: 8px 16px; color: var(--green);
+            font-size: .85rem; font-weight: 600; text-decoration: none;
+            transition: opacity .15s;
+        }
+        .btn-ligar:active { opacity: .7; }
+
+        /* ── Resultado buttons ── */
+        .resultado-area { border-top: 1px solid var(--border); padding: 12px 16px; }
+        .resultado-label { font-size: .7rem; color: var(--muted); font-weight: 600;
+                           text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+        .resultado-btns { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+
+        .rbtn {
+            flex: 1; min-width: 80px;
+            padding: 9px 8px; border-radius: 9px; border: 1px solid var(--border);
+            background: transparent; color: var(--muted); font-size: .78rem;
+            cursor: pointer; text-align: center; transition: all .15s;
+        }
+        .rbtn:active { transform: scale(.96); }
+        .rbtn.sel-atendeu    { background: rgba(34,197,94,.2);  border-color: var(--green);  color: var(--green);  }
+        .rbtn.sel-nao        { background: rgba(239,68,68,.2);  border-color: var(--red);    color: var(--red);    }
+        .rbtn.sel-prometeu   { background: rgba(245,158,11,.2); border-color: var(--yellow); color: var(--yellow); }
+        .rbtn.sel-pagou      { background: rgba(34,197,94,.3);  border-color: var(--green);  color: var(--green); font-weight:700; }
+        .rbtn.sel-recusou    { background: rgba(239,68,68,.15); border-color: var(--red);    color: var(--red);    }
+        .rbtn.sel-voicemail  { background: rgba(139,92,246,.2); border-color: var(--purple); color: var(--purple); }
+
+        /* ── Form de observação ── */
+        .obs-area { display: none; }
+        .obs-area.aberta { display: block; }
+        .obs-area textarea {
+            width: 100%; background: rgba(0,0,0,.3); border: 1px solid var(--border);
+            border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: .85rem;
+            resize: none; height: 60px; margin-bottom: 8px;
+        }
+        .obs-area textarea:focus { outline: none; border-color: var(--primary); }
+
+        .retorno-row {
+            display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+            font-size: .8rem; color: var(--muted);
+        }
+        .retorno-row input[type=date] {
+            background: rgba(0,0,0,.3); border: 1px solid var(--border);
+            border-radius: 7px; padding: 6px 10px; color: var(--text); font-size: .8rem;
+            flex: 1;
+        }
+        .retorno-row input[type=date]:focus { outline: none; border-color: var(--primary); }
+
+        .btn-salvar {
+            width: 100%; padding: 11px; border-radius: 9px; border: none;
+            background: var(--primary); color: #fff; font-size: .9rem; font-weight: 700;
+            cursor: pointer; transition: opacity .15s;
+        }
+        .btn-salvar:active { opacity: .8; }
+        .btn-salvar:disabled { opacity: .5; cursor: not-allowed; }
+
+        /* ── Ult. tentativa badge ── */
+        .tent-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 8px; border-radius: 10px; font-size: .7rem; font-weight: 600;
+        }
+        .tent-atendeu   { background: rgba(34,197,94,.15);  color: var(--green); }
+        .tent-nao       { background: rgba(239,68,68,.15);  color: var(--red);   }
+        .tent-prometeu  { background: rgba(245,158,11,.15); color: var(--yellow);}
+        .tent-pagou     { background: rgba(34,197,94,.25);  color: var(--green); }
+        .tent-voicemail { background: rgba(139,92,246,.15); color: var(--purple);}
+        .tent-recusou   { background: rgba(239,68,68,.1);   color: var(--red);   }
+
+        /* ── CNY badge ── */
+        .cny-pago    { color: var(--green); }
+        .cny-aberto  { color: var(--red);   }
+        .cny-unknown { color: var(--muted); }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; border: 1px solid var(--border); border-radius: 10px;
+            padding: 10px 20px; font-size: .85rem; font-weight: 600;
+            z-index: 999; display: none; white-space: nowrap;
+            box-shadow: 0 4px 20px rgba(0,0,0,.4);
+        }
+        #toast.ok  { border-color: rgba(34,197,94,.5); color: var(--green); }
+        #toast.err { border-color: rgba(239,68,68,.5); color: var(--red); }
+
+        /* ── Empty ── */
+        .empty { text-align: center; padding: 60px 20px; color: var(--muted); font-size: .9rem; }
+        .loading { text-align: center; padding: 40px; color: var(--muted); }
+    </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+    <div class="topbar-brand">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.11 11 19.79 19.79 0 0 1 1.08 2.18 2 2 0 0 1 3.05 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 7.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 15z"/>
+        </svg>
+        <span>Cobrador</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+        <span class="topbar-badge">📞 <span id="chamadas-hoje">0</span> hoje</span>
+        <a href="/" style="color:var(--muted);font-size:.75rem;text-decoration:none;">Dashboard ↗</a>
+    </div>
+</div>
+
+<!-- Busca -->
+<div class="search-wrap">
+    <input type="search" id="busca" placeholder="🔍  Buscar cliente..." autocomplete="off">
+</div>
+
+<!-- Filtros -->
+<div class="filters" id="filtros">
+    <button class="filter-btn ativo" data-filtro="todos">Todos</button>
+    <button class="filter-btn" data-filtro="retorno">📅 Retorno hoje</button>
+    <button class="filter-btn" data-filtro="sem_contato">🔔 Sem contato</button>
+</div>
+
+<!-- Cards -->
+<div class="cards" id="cards">
+    <div class="loading">Carregando fila...</div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+const API = window.location.origin + '/api';
+let apiKey   = localStorage.getItem('cobrador_api_key') || '';
+let filtroAtivo = 'todos';
+let buscaTimer  = null;
+let todosClientes = [];
+
+// ── API key ───────────────────────────────────────────────────────────────────
+function getApiKey() {
+    if (!apiKey) {
+        apiKey = prompt('Informe a chave de API (API_SECRET_KEY do .env):') || '';
+        if (apiKey) localStorage.setItem('cobrador_api_key', apiKey);
+    }
+    return apiKey;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg, tipo = 'ok') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = tipo;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 2500);
+}
+
+// ── Carrega fila ──────────────────────────────────────────────────────────────
+async function carregarFila() {
+    const q = document.getElementById('busca').value.trim();
+    const url = `${API}/fila-ligacao?filtro=${filtroAtivo}&q=${encodeURIComponent(q)}&limite=100`;
+    try {
+        const data = await fetch(url).then(r => r.json());
+        if (data.error) throw new Error(data.error);
+        todosClientes = data.clientes || [];
+        document.getElementById('chamadas-hoje').textContent = data.chamadas_hoje || 0;
+        renderCards(todosClientes);
+    } catch(e) {
+        document.getElementById('cards').innerHTML =
+            `<div class="empty">Erro ao carregar: ${e.message}</div>`;
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const TENT_LABEL = {
+    atendeu:   ['✅','Atendeu',  'atendeu'],
+    nao_atendeu:['❌','Não atend.','nao'],
+    prometeu:  ['🤝','Prometeu',  'prometeu'],
+    pagou:     ['💰','Pagou!',    'pagou'],
+    recusou:   ['🚫','Recusou',   'recusou'],
+    voicemail: ['📞','Voicemail', 'voicemail'],
+};
+
+function tentBadge(resultado) {
+    if (!resultado) return '';
+    const [ico, label, cls] = TENT_LABEL[resultado] || ['', resultado, ''];
+    return `<span class="tent-badge tent-${cls}">${ico} ${label}</span>`;
+}
+
+function cnyBadge(status) {
+    if (status === 'pago')     return `<span class="cny-pago">● Pago (CNY)</span>`;
+    if (status === 'em_aberto') return `<span class="cny-aberto">● Em aberto</span>`;
+    return `<span class="cny-unknown">● —</span>`;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderCards(clientes) {
+    const wrap = document.getElementById('cards');
+    if (!clientes.length) {
+        wrap.innerHTML = '<div class="empty">Nenhum cliente nesta fila.</div>';
+        return;
+    }
+    wrap.innerHTML = '';
+    clientes.forEach((c, idx) => {
+        const isPago     = c.status_cny === 'pago';
+        const isRetorno  = c.agendado_hoje;
+        const cardClass  = isPago ? 'card-pago' : isRetorno ? 'card-retorno' : '';
+        const diasLabel  = c.dias_atraso === 0 ? 'Vence hoje'
+                         : `${c.dias_atraso}d em atraso`;
+        const parcelaStr = c.prazo > 0 ? ` · Parcela ${c.parcela_atual}/${c.prazo}` : '';
+
+        const div = document.createElement('div');
+        div.className = `card ${cardClass}`;
+        div.id = `card-${idx}`;
+        div.innerHTML = `
+        <div class="card-header">
+            <div>
+                <div class="card-nome">${c.nome}</div>
+                <div class="card-sub">${c.cpf}${parcelaStr}</div>
+            </div>
+            <div class="card-valor">
+                <div class="valor">R$ ${(c.valor||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}</div>
+                <div class="atraso">${diasLabel}</div>
+            </div>
+        </div>
+
+        <div class="card-meta">
+            ${c.contrato ? `<span>${c.contrato} · ${c.modelo}</span>` : ''}
+            <span>${cnyBadge(c.status_cny)}</span>
+            ${c.ultima_ligacao
+                ? `<span>${tentBadge(c.ultima_ligacao)} ${c.ultima_ligacao_em || ''}</span>`
+                : '<span style="color:var(--muted)">Sem contato anterior</span>'}
+            ${isRetorno ? `<span style="color:var(--yellow)">📅 Retorno hoje</span>` : ''}
+        </div>
+
+        <div class="card-tel">
+            <a href="tel:${c.telefone}" class="btn-ligar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.11 11 19.79 19.79 0 0 1 1.08 2.18 2 2 0 0 1 3.05 0h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 7.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 15z"/>
+                </svg>
+                ${c.telefone_fmt || c.telefone}
+            </a>
+        </div>
+
+        <div class="resultado-area">
+            <div class="resultado-label">Resultado da ligação</div>
+            <div class="resultado-btns">
+                <button class="rbtn" data-res="atendeu">✅ Atendeu</button>
+                <button class="rbtn" data-res="nao_atendeu">❌ Não atend.</button>
+                <button class="rbtn" data-res="prometeu">🤝 Prometeu</button>
+                <button class="rbtn" data-res="pagou">💰 Pagou!</button>
+                <button class="rbtn" data-res="recusou">🚫 Recusou</button>
+                <button class="rbtn" data-res="voicemail">📞 Voicemail</button>
+            </div>
+
+            <div class="obs-area" id="obs-${idx}">
+                <textarea placeholder="Observação (opcional)..." id="obs-txt-${idx}"></textarea>
+                <div class="retorno-row">
+                    <span>📅 Retornar em:</span>
+                    <input type="date" id="retorno-${idx}"
+                        value="${c.retorno_agendado ? dateToInput(c.retorno_agendado) : ''}">
+                </div>
+                <button class="btn-salvar" id="salvar-${idx}"
+                    onclick="salvarTentativa(${idx}, '${escapeAttr(c.cpf)}', '${c.vencimento}', '${escapeAttr(c.nome)}')">
+                    💾 Salvar
+                </button>
+            </div>
+        </div>`;
+
+        // Seleção de resultado
+        div.querySelectorAll('.rbtn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                div.querySelectorAll('.rbtn').forEach(b => {
+                    b.className = 'rbtn';
+                });
+                const res = btn.dataset.res;
+                btn.classList.add(`sel-${res === 'nao_atendeu' ? 'nao' : res}`);
+                div.dataset.resultado = res;
+                document.getElementById(`obs-${idx}`).classList.add('aberta');
+                // Mostra campo de retorno só quando faz sentido
+                document.querySelector(`#card-${idx} .retorno-row`).style.display =
+                    ['nao_atendeu', 'prometeu', 'voicemail'].includes(res) ? 'flex' : 'none';
+            });
+        });
+
+        wrap.appendChild(div);
+    });
+}
+
+function dateToInput(ddmmaaaa) {
+    if (!ddmmaaaa || !ddmmaaaa.includes('/')) return '';
+    const [d, m, y] = ddmmaaaa.split('/');
+    return `${y}-${m}-${d}`;
+}
+
+function escapeAttr(s) {
+    return (s || '').replace(/'/g, "\\'");
+}
+
+// ── Salva tentativa ───────────────────────────────────────────────────────────
+async function salvarTentativa(idx, cpfMask, vencimento, nome) {
+    const card      = document.getElementById(`card-${idx}`);
+    const resultado = card.dataset.resultado;
+    if (!resultado) { toast('Selecione um resultado primeiro.', 'err'); return; }
+
+    const obs       = document.getElementById(`obs-txt-${idx}`).value.trim();
+    const retornoIn = document.getElementById(`retorno-${idx}`).value;
+    let   dataRetorno = '';
+    if (retornoIn) {
+        const [y, m, d] = retornoIn.split('-');
+        dataRetorno = `${d}/${m}/${y}`;
+    }
+
+    // CPF raw: usamos o mascarado + vencimento como identificador
+    // O backend usa o cpf passado diretamente
+    const cpfRaw = cpfMask.replace(/\*/g, '').replace(/[.\-]/g, '');
+
+    const key = getApiKey();
+    if (!key) return;
+
+    const btn = document.getElementById(`salvar-${idx}`);
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+
+    try {
+        const res = await fetch(`${API}/tentativa`, {
+            method:  'POST',
+            headers: { 'X-API-Key': key, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cpf: cpfRaw, vencimento, nome, resultado,
+                observacao: obs, data_retorno: dataRetorno,
+            }),
+        });
+
+        if (res.status === 401) {
+            toast('Chave de API inválida.', 'err');
+            localStorage.removeItem('cobrador_api_key');
+            apiKey = '';
+            btn.disabled = false; btn.textContent = '💾 Salvar';
+            return;
+        }
+
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'Erro desconhecido');
+
+        toast('✅ Tentativa registrada!', 'ok');
+        btn.textContent = '✓ Salvo';
+
+        // Atualiza contador
+        const el = document.getElementById('chamadas-hoje');
+        el.textContent = parseInt(el.textContent || '0') + 1;
+
+        // Remove card dos "pagou" se CNY confirmado
+        if (resultado === 'pagou') {
+            card.style.transition = 'opacity .4s';
+            card.style.opacity = '.3';
+        }
+
+        // Reseta form após 1.5s
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = '💾 Salvar';
+            card.querySelectorAll('.rbtn').forEach(b => b.className = 'rbtn');
+            document.getElementById(`obs-${idx}`).classList.remove('aberta');
+            document.getElementById(`obs-txt-${idx}`).value = '';
+            delete card.dataset.resultado;
+            card.style.opacity = '';
+        }, 1500);
+
+    } catch(e) {
+        toast(`Erro: ${e.message}`, 'err');
+        btn.disabled = false;
+        btn.textContent = '💾 Salvar';
+    }
+}
+
+// ── Filtros e busca ───────────────────────────────────────────────────────────
+document.getElementById('filtros').addEventListener('click', e => {
+    const btn = e.target.closest('.filter-btn');
+    if (!btn) return;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('ativo'));
+    btn.classList.add('ativo');
+    filtroAtivo = btn.dataset.filtro;
+    carregarFila();
+});
+
+document.getElementById('busca').addEventListener('input', () => {
+    clearTimeout(buscaTimer);
+    buscaTimer = setTimeout(carregarFila, 350);
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+carregarFila();
+setInterval(carregarFila, 60000);  // refresh a cada minuto
+</script>
+</body>
+</html>

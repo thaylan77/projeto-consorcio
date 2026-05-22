@@ -44,6 +44,7 @@ ORQUESTRADOR_SCRIPT  = "orquestrador.py"
 COBRADOR_SCRIPT      = "cobrador.py"
 AGENDADOR_SCRIPT     = "agendador.py"
 RESPOSTAS_SCRIPT     = "respostas_whatsapp.py"
+VERIF_CNY_SCRIPT     = "verificador_cny.py"
 
 
 # =============================================================================
@@ -321,9 +322,127 @@ def run_respostas():
     return jsonify({"status": "Analise de respostas WhatsApp iniciada!"})
 
 
+@app.route("/api/run/verificador-cny", methods=["POST"])
+@require_api_key
+def run_verificador_cny():
+    threading.Thread(target=_run_background, args=(VERIF_CNY_SCRIPT,), daemon=True).start()
+    return jsonify({"status": "Verificacao CNY iniciada em background!"})
+
+
+# =============================================================================
+# TENTATIVAS DE LIGAÇÃO (cobrador humano)
+# =============================================================================
+@app.route("/api/tentativa", methods=["POST"])
+@require_api_key
+def post_tentativa():
+    """Registra uma tentativa de ligação do cobrador humano."""
+    try:
+        payload = request.get_json(force=True) or {}
+        cpf          = re.sub(r"\D", "", str(payload.get("cpf", "")))
+        vencimento   = str(payload.get("vencimento", "")).strip()
+        arquivo      = str(payload.get("arquivo",    "")).strip()
+        nome         = str(payload.get("nome",       "")).strip()
+        resultado    = str(payload.get("resultado",  "")).strip()
+        observacao   = str(payload.get("observacao", "")).strip()
+        data_retorno = str(payload.get("data_retorno", "")).strip()
+        operador     = str(payload.get("operador",   "")).strip()
+
+        if not cpf or not resultado:
+            return jsonify({"error": "Campos 'cpf' e 'resultado' sao obrigatorios."}), 400
+
+        _id = db.registrar_tentativa(cpf, vencimento, arquivo, nome,
+                                     resultado, observacao, data_retorno, operador)
+        return jsonify({"ok": True, "id": _id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/tentativas", methods=["GET"])
+def get_tentativas():
+    """Lista tentativas de ligação (filtro opcional por CPF)."""
+    cpf    = re.sub(r"\D", "", request.args.get("cpf", ""))
+    limite = min(int(request.args.get("limite", 100)), 500)
+    return jsonify(db.listar_tentativas(cpf, limite))
+
+
+@app.route("/api/fila-ligacao", methods=["GET"])
+def get_fila_ligacao():
+    """
+    Retorna a fila de clientes para o cobrador humano:
+    clientes com Cobrança enviada, enriquecidos com última tentativa e status CNY.
+    """
+    try:
+        q      = request.args.get("q", "").lower().strip()
+        filtro = request.args.get("filtro", "todos")   # todos|hoje|retorno
+        limite = min(int(request.args.get("limite", 50)), 200)
+        offset = int(request.args.get("offset", 0))
+
+        clientes = _construir_dados_cobranca()
+        # Fila de ligação: apenas quem já recebeu Cobrança
+        clientes = [c for c in clientes if c.get("envios", {}).get("Cobranca", 0) > 0]
+
+        cny_mapa      = db.status_cny_mapa()
+        ult_tentativa = db.ultima_tentativa_por_cpf()
+        hoje_str      = datetime.now().strftime("%d/%m/%Y")
+        agendados_hoje = {r["cpf"] for r in db.proximas_ligacoes_agendadas()}
+
+        resultado = []
+        for c in clientes:
+            cpf_raw = c.pop("cpf_raw", "")
+            c.pop("arquivo", None)
+
+            cny  = cny_mapa.get((cpf_raw, c["vencimento"]), {})
+            tent = ult_tentativa.get(cpf_raw, {})
+
+            c["cpf_raw"]          = cpf_raw
+            c["status_cny"]       = cny.get("status", "desconhecido")
+            c["cny_verificado"]   = cny.get("verificado_em", "")
+            c["ultima_ligacao"]   = tent.get("resultado", "")
+            c["ultima_ligacao_em"] = _fmt_ultimo_contato(tent.get("data_tentativa", ""))
+            c["retorno_agendado"] = tent.get("data_retorno", "")
+            c["agendado_hoje"]    = cpf_raw in agendados_hoje
+            resultado.append(c)
+
+        # Filtros
+        if filtro == "retorno":
+            resultado = [c for c in resultado if c.get("agendado_hoje")]
+        elif filtro == "sem_contato":
+            resultado = [c for c in resultado if not c.get("ultima_ligacao")]
+
+        if q:
+            resultado = [c for c in resultado if
+                q in c["nome"].lower() or q in c["telefone"] or q in c["cpf"].lower()]
+
+        # Ordena: agendados hoje primeiro, depois por maior atraso
+        resultado.sort(key=lambda x: (-int(x.get("agendado_hoje", False)),
+                                       -x.get("dias_atraso", 0)))
+
+        total         = len(resultado)
+        chamadas_hoje = db.tentativas_hoje_count()
+        pagina        = resultado[offset: offset + limite]
+
+        # Remove cpf_raw da resposta
+        for c in pagina:
+            c.pop("cpf_raw", None)
+
+        return jsonify({
+            "total":         total,
+            "chamadas_hoje": chamadas_hoje,
+            "clientes":      pagina,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/")
 def index():
     return send_from_directory(_DASHBOARD_DIR, "index.html")
+
+
+@app.route("/cobrador")
+def cobrador_app():
+    """App mobile para o cobrador humano."""
+    return send_from_directory(_DASHBOARD_DIR, "cobrador.html")
 
 
 @app.route("/<path:filename>")
@@ -671,20 +790,22 @@ def _construir_dados_cobranca() -> list[dict]:
         total_envios = sum(entry["envios"].values())
 
         resultado.append({
-            "nome":          nome,
-            "cpf":           cpf_mask,
-            "telefone":      tel,
-            "telefone_fmt":  tel_fmt,
-            "contrato":      contrato,
-            "modelo":        modelo,
-            "parcela_atual": parcela_atual,
-            "prazo":         prazo,
-            "valor":         round(valor, 2),
-            "dias_atraso":   dias_atraso,
-            "vencimento":    venc_str,
-            "envios":        entry["envios"],
-            "total_envios":  total_envios,
-            "historico_pct": historico_pct,
+            "nome":           nome,
+            "cpf":            cpf_mask,
+            "cpf_raw":        cpf,          # removido antes de enviar ao cliente
+            "telefone":       tel,
+            "telefone_fmt":   tel_fmt,
+            "contrato":       contrato,
+            "modelo":         modelo,
+            "parcela_atual":  parcela_atual,
+            "prazo":          prazo,
+            "valor":          round(valor, 2),
+            "dias_atraso":    dias_atraso,
+            "vencimento":     venc_str,
+            "arquivo":        arq,
+            "envios":         entry["envios"],
+            "total_envios":   total_envios,
+            "historico_pct":  historico_pct,
             "ultimo_contato": _fmt_ultimo_contato(entry["ultimo_ts"]),
         })
 
@@ -736,8 +857,26 @@ def get_cobranca_operacional():
                 q in c["telefone"] or
                 q in c["contrato"].lower()]
 
-        total  = len(clientes)
-        pagina = clientes[offset: offset + limite]
+        total = len(clientes)
+
+        # Enriquece com status CNY e última tentativa de ligação
+        cny_mapa      = db.status_cny_mapa()
+        ult_tentativa = db.ultima_tentativa_por_cpf()
+
+        pagina = []
+        for c in clientes[offset: offset + limite]:
+            cpf_raw  = c.pop("cpf_raw", "")
+            c.pop("arquivo", None)
+
+            cny  = cny_mapa.get((cpf_raw, c["vencimento"]), {})
+            tent = ult_tentativa.get(cpf_raw, {})
+
+            c["status_cny"]       = cny.get("status", "desconhecido")
+            c["cny_verificado"]   = cny.get("verificado_em", "")
+            c["ultima_ligacao"]   = tent.get("resultado", "")
+            c["ultima_ligacao_em"] = _fmt_ultimo_contato(tent.get("data_tentativa", ""))
+            c["retorno_agendado"] = tent.get("data_retorno", "")
+            pagina.append(c)
 
         return jsonify({
             "total":         total,

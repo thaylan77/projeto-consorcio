@@ -55,9 +55,10 @@ JANELA_D1_MAX = int(os.getenv("JANELA_D1_MAX", "4"))
 DIAS_APOS_VENC_PARA_COBRAR = int(os.getenv("DIAS_APOS_VENC_PARA_COBRAR", "2"))
 
 # Agendador
-HORA_PIPELINE  = os.getenv("HORA_PIPELINE", "08:00")
-HORA_COBRADOR  = os.getenv("HORA_COBRADOR", "09:00")
-HORA_RESPOSTAS = os.getenv("HORA_RESPOSTAS", "10:00")
+HORA_PIPELINE   = os.getenv("HORA_PIPELINE",   "08:00")
+HORA_COBRADOR   = os.getenv("HORA_COBRADOR",   "09:00")
+HORA_RESPOSTAS  = os.getenv("HORA_RESPOSTAS",  "10:00")
+HORA_VERIF_CNY  = os.getenv("HORA_VERIF_CNY",  "11:00")  # 2ª verificação às 16:00 automática
 
 # IA (Anthropic Claude) — opcional, deixe vazio para desabilitar
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")

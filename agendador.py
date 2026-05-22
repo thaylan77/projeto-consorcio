@@ -22,7 +22,7 @@ from datetime import datetime
 
 import schedule
 
-from config import HORA_PIPELINE, HORA_COBRADOR, HORA_RESPOSTAS
+from config import HORA_PIPELINE, HORA_COBRADOR, HORA_RESPOSTAS, HORA_VERIF_CNY
 from logger import log
 
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +32,7 @@ MODULO = "Agendador"
 _lock_pipeline  = threading.Lock()
 _lock_cobrador  = threading.Lock()
 _lock_respostas = threading.Lock()
+_lock_verif_cny = threading.Lock()
 
 
 # =============================================================================
@@ -89,6 +90,14 @@ def job_respostas():
     ).start()
 
 
+def job_verif_cny():
+    threading.Thread(
+        target=_rodar_script,
+        args=("Verificacao CNY", "verificador_cny.py", _lock_verif_cny),
+        daemon=True,
+    ).start()
+
+
 # =============================================================================
 # AGENDA
 # =============================================================================
@@ -96,12 +105,15 @@ def configurar_agenda():
     schedule.every().day.at(HORA_PIPELINE).do(job_pipeline)
     schedule.every().day.at(HORA_COBRADOR).do(job_cobrador)
     schedule.every().day.at(HORA_RESPOSTAS).do(job_respostas)
+    schedule.every().day.at(HORA_VERIF_CNY).do(job_verif_cny)
+    schedule.every().day.at("16:00").do(job_verif_cny)   # 2ª verificação da tarde
 
     log("=" * 55, modulo=MODULO)
     log("AGENDADOR INICIADO", modulo=MODULO)
     log(f"  Pipeline completo      : todos os dias as {HORA_PIPELINE}", modulo=MODULO)
     log(f"  Cobranca D+2           : todos os dias as {HORA_COBRADOR}", modulo=MODULO)
     log(f"  IA Respostas WhatsApp  : todos os dias as {HORA_RESPOSTAS}", modulo=MODULO)
+    log(f"  Verificacao CNY        : {HORA_VERIF_CNY} e 16:00", modulo=MODULO)
     log("  Pressione Ctrl+C para encerrar.", modulo=MODULO)
     log("=" * 55, modulo=MODULO)
 
