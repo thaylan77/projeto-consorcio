@@ -222,46 +222,18 @@ def processar_resposta(telefone: str, mensagem: str) -> dict:
 
 
 # =============================================================================
-# VARREDURA EM LOTE (chamado pelo agendador / endpoint /api/run/respostas)
+# NOTA: a Sunchat NÃO oferece endpoint de polling de mensagens recebidas.
+# A integração funciona 100% por webhook push:
+#   Sunchat → POST /webhook/sunchat → processar_resposta()
+# Por isso esse módulo não tem mais uma rotina de "varredura em lote".
+# Mantemos apenas o ponto de entrada manual para teste rápido pela linha de comando.
 # =============================================================================
-def processar_respostas_pendentes() -> dict:
-    """
-    Consulta a API Sunchat por mensagens não lidas e processa cada uma.
-    Retorna resumo da operação.
-    """
-    log("Iniciando varredura de respostas recebidas...", modulo=MODULO)
-
-    headers = {"access-token": TOKEN_SUNCHAT, "Content-Type": "application/json"}
-
-    # Sunchat: endpoint de mensagens recebidas (adapte conforme documentação)
-    URL_INBOX = "https://api.sunchat.com.br/core/v2/api/chats/received-messages"
-
-    try:
-        resp = requests.get(URL_INBOX, headers=headers, timeout=20)
-        if resp.status_code not in (200, 201):
-            log(f"Sunchat inbox retornou {resp.status_code}: {resp.text[:80]}", "ERROR", MODULO)
-            return {"processadas": 0, "erro": resp.text[:80]}
-        mensagens = resp.json() if isinstance(resp.json(), list) else []
-    except Exception as e:
-        log(f"Erro ao consultar inbox Sunchat: {e}", "ERROR", MODULO)
-        return {"processadas": 0, "erro": str(e)}
-
-    if not mensagens:
-        log("Nenhuma resposta nova encontrada.", modulo=MODULO)
-        return {"processadas": 0}
-
-    resultados = []
-    for msg in mensagens:
-        telefone = re.sub(r"\D", "", str(msg.get("number") or msg.get("from") or ""))
-        texto    = str(msg.get("message") or msg.get("body") or "").strip()
-        if telefone and texto:
-            r = processar_resposta(telefone, texto)
-            resultados.append(r)
-            time.sleep(1)
-
-    log(f"Respostas processadas: {len(resultados)}", "SUCCESS", MODULO)
-    return {"processadas": len(resultados), "detalhes": resultados}
-
 
 if __name__ == "__main__":
-    processar_respostas_pendentes()
+    import sys
+    if len(sys.argv) >= 3:
+        _tel, _txt = sys.argv[1], " ".join(sys.argv[2:])
+        log(f"Modo teste manual: telefone={_tel} texto={_txt!r}", modulo=MODULO)
+        print(processar_resposta(_tel, _txt))
+    else:
+        log("Modo daemon: nada a fazer. Respostas chegam via webhook /webhook/sunchat.", modulo=MODULO)
