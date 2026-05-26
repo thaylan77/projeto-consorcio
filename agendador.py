@@ -32,6 +32,7 @@ MODULO = "Agendador"
 _lock_pipeline  = threading.Lock()
 _lock_cobrador  = threading.Lock()
 _lock_verif_cny = threading.Lock()
+_lock_snapshot  = threading.Lock()
 
 
 # =============================================================================
@@ -89,6 +90,41 @@ def job_verif_cny():
     ).start()
 
 
+def _rodar_snapshot_mensal() -> None:
+    """Captura snapshot de KPIs mensais — só executa de fato no dia 1."""
+    if datetime.now().day != 1:
+        return
+    if not _lock_snapshot.acquire(blocking=False):
+        log("Snapshot mensal ja em execucao, ignorando disparo.", "WARNING", MODULO)
+        return
+    try:
+        import db as _db
+        from api_dashboard import _calcular_kpis_gerente
+        log("Capturando snapshot mensal de KPIs...", "START", MODULO)
+        k = _calcular_kpis_gerente()
+        _db.salvar_snapshot_mensal(
+            mes=k["mes"],
+            inadimplencia_pct=k["inadimplencia_pct"],
+            recebido=k["recebido"],
+            a_receber=k["a_receber"],
+            atrasado=k["atrasado"],
+            em_risco=k["em_risco"],
+            adimplentes=k["adimplentes"],
+            carteira=k["carteira"],
+        )
+        log(f"Snapshot mensal salvo para {k['mes']} "
+            f"(inadimpl={k['inadimplencia_pct']}% recebido=R$ {k['recebido']:.2f})",
+            "SUCCESS", MODULO)
+    except Exception as e:
+        log(f"Erro no snapshot mensal: {e}", "ERROR", MODULO)
+    finally:
+        _lock_snapshot.release()
+
+
+def job_snapshot_mensal():
+    threading.Thread(target=_rodar_snapshot_mensal, daemon=True).start()
+
+
 # =============================================================================
 # AGENDA
 # =============================================================================
@@ -97,12 +133,14 @@ def configurar_agenda():
     schedule.every().day.at(HORA_COBRADOR).do(job_cobrador)
     schedule.every().day.at(HORA_VERIF_CNY).do(job_verif_cny)
     schedule.every().day.at("16:00").do(job_verif_cny)   # 2ª verificação da tarde
+    schedule.every().day.at("02:00").do(job_snapshot_mensal)  # roda só dia 1
 
     log("=" * 55, modulo=MODULO)
     log("AGENDADOR INICIADO", modulo=MODULO)
     log(f"  Pipeline completo      : todos os dias as {HORA_PIPELINE}", modulo=MODULO)
     log(f"  Cobranca D+2           : todos os dias as {HORA_COBRADOR}", modulo=MODULO)
     log(f"  Verificacao CNY        : {HORA_VERIF_CNY} e 16:00", modulo=MODULO)
+    log("  Snapshot mensal KPIs   : todo dia 1, as 02:00", modulo=MODULO)
     log("  Respostas WhatsApp     : via webhook /webhook/sunchat (push)", modulo=MODULO)
     log("  Pressione Ctrl+C para encerrar.", modulo=MODULO)
     log("=" * 55, modulo=MODULO)

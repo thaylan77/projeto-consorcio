@@ -889,6 +889,299 @@ def get_cobranca_operacional():
         return jsonify({"error": str(e)}), 500
 
 
+# =============================================================================
+# TELA GERENTE — visão estratégica
+# =============================================================================
+_MESES_PT = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+             "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+
+def _mes_label(mes: str) -> str:
+    """'2026-05' -> 'Mai/26'."""
+    try:
+        y, m = mes.split("-")
+        return f"{_MESES_PT[int(m)]}/{y[2:]}"
+    except Exception:
+        return mes
+
+
+def _calcular_kpis_gerente() -> dict:
+    """
+    Snapshot de KPIs estratégicos para a tela do gerente.
+    Reúne dados da base de clientes (CSV) e dos disparos/ligações.
+    """
+    hoje = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    mes_atual = hoje.strftime("%Y-%m")
+
+    # ── Carteira e valores via CSV ────────────────────────────────────────────
+    carteira    = 0
+    a_receber   = 0.0
+    valor_carteira = 0.0
+    em_risco    = 0
+    por_score   = {"Critico": 0, "Alto": 0, "Medio": 0, "Baixo": 0, "Novo": 0}
+
+    if os.path.exists(_ARQUIVO_CSV):
+        try:
+            clientes_csv = _carregar_clientes_csv()
+            carteira = len(clientes_csv)
+            for c in clientes_csv:
+                v = _parse_valor(c.get("valorprimeiraparcela", ""))
+                if v > 0:
+                    a_receber += v
+                s = c.get("score_risco", "Novo")
+                por_score[s] = por_score.get(s, 0) + 1
+            em_risco = por_score.get("Critico", 0) + por_score.get("Alto", 0)
+        except Exception:
+            pass
+
+    # ── Cobrança operacional ──────────────────────────────────────────────────
+    try:
+        em_cobranca = _construir_dados_cobranca()
+    except Exception:
+        em_cobranca = []
+
+    atrasado_valor  = sum(c["valor"] for c in em_cobranca)
+    atrasado_count  = len(em_cobranca)
+    inadimplencia_pct = round(atrasado_count / carteira * 100, 1) if carteira > 0 else 0.0
+    adimplentes = max(carteira - atrasado_count, 0)
+    adimplentes_pct = round(adimplentes / carteira * 100, 1) if carteira > 0 else 0.0
+
+    recebido = max(a_receber - atrasado_valor, 0.0)
+    meta_pct = round(recebido / a_receber * 100, 1) if a_receber > 0 else 0.0
+
+    # ── Efetividade (para conversão envio→pago e ticket médio) ────────────────
+    try:
+        efet = _calcular_efetividade(30)
+    except Exception:
+        efet = {}
+
+    taxa_prazo = efet.get("taxa_prazo_pct", 0)
+    ticket = round(a_receber / carteira, 2) if carteira > 0 else 0.0
+
+    # ── Atividade do dia ──────────────────────────────────────────────────────
+    stats = db.stats_do_dia()
+    chamadas_hoje = db.tentativas_hoje_count()
+    pagamentos_ia = len(db.listar_pagamentos())
+
+    por_tipo = stats.get("por_tipo", {})
+    boletos_enviados_hoje = (por_tipo.get("D-7", 0) + por_tipo.get("D-1", 0)
+                              + por_tipo.get("Cobranca", 0))
+    novos_atrasos = sum(1 for c in em_cobranca if c.get("dias_atraso") == 0)
+
+    # 2ª vias = downloads/regerações que viraram disparos extras D-1
+    segundas_vias = stats.get("por_tipo", {}).get("D-1", 0)
+
+    # Pagamentos confirmados hoje (via WhatsApp IA + CNY pago hoje)
+    cny_mapa = db.status_cny_mapa()
+    pagamentos_hoje = 0
+    hoje_str = hoje.strftime("%d/%m/%Y")
+    for v in cny_mapa.values():
+        if v.get("status") == "pago" and v.get("verificado_em", "").startswith(hoje_str):
+            pagamentos_hoje += 1
+
+    # ── Status NEWCON (última verificação CNY) ────────────────────────────────
+    if cny_mapa:
+        ultima = max(cny_mapa.values(),
+                     key=lambda v: v.get("verificado_em", ""))
+        ultima_sync = (ultima.get("verificado_em", "") or "").split(" ")[-1][:5]
+    else:
+        ultima_sync = "—"
+
+    conciliados = sum(1 for v in cny_mapa.values() if v.get("status") == "pago")
+    em_aberto_cny = sum(1 for v in cny_mapa.values() if v.get("status") == "em_aberto")
+    erros_cny     = sum(1 for v in cny_mapa.values() if v.get("status") == "erro")
+
+    # ── Comparações vs mês anterior (do snapshot histórico) ───────────────────
+    snaps = db.listar_snapshots(13)
+    snap_anterior = snaps[-2] if len(snaps) >= 2 else None
+    var_recebido   = None
+    var_atrasado   = None
+    var_inadimpl   = None
+    if snap_anterior:
+        ra = snap_anterior.get("recebido", 0) or 0
+        if ra > 0:
+            var_recebido = round((recebido - ra) / ra * 100, 1)
+        aa = snap_anterior.get("atrasado", 0) or 0
+        if aa > 0:
+            var_atrasado = round((atrasado_valor - aa) / aa * 100, 1)
+        ia = snap_anterior.get("inadimplencia_pct", 0) or 0
+        var_inadimpl = round(inadimplencia_pct - ia, 1)
+
+    return {
+        "mes":             mes_atual,
+        "mes_label":       _mes_label(mes_atual),
+        "carteira":        carteira,
+        "a_receber":       round(a_receber, 2),
+        "recebido":        round(recebido, 2),
+        "atrasado":        round(atrasado_valor, 2),
+        "atrasado_count":  atrasado_count,
+        "inadimplencia_pct": inadimplencia_pct,
+        "adimplentes":     adimplentes,
+        "adimplentes_pct": adimplentes_pct,
+        "em_risco":        em_risco,
+        "meta_pct":        meta_pct,
+        "ticket_medio":    ticket,
+        "conversao_pct":   taxa_prazo,
+        "atividade_hoje": {
+            "boletos_enviados":   boletos_enviados_hoje,
+            "pagamentos":         pagamentos_hoje,
+            "novos_atrasos":      novos_atrasos,
+            "ligacoes":           chamadas_hoje,
+            "whatsapp_respond":   pagamentos_ia,
+            "segundas_vias":      segundas_vias,
+        },
+        "newcon": {
+            "conciliados": conciliados,
+            "em_aberto":   em_aberto_cny,
+            "erros":       erros_cny,
+            "ultima_sync": ultima_sync,
+        },
+        "variacoes": {
+            "recebido_pct":   var_recebido,
+            "atrasado_pct":   var_atrasado,
+            "inadimpl_pp":    var_inadimpl,
+        },
+        "funil": {
+            "boletos_gerados": efet.get("total_clientes", 0),
+            "enviado_d7":      efet.get("total_clientes", 0),
+            "pago_apos_d7":    efet.get("pagaram_prazo", 0),
+            "enviado_d2":      efet.get("cobrados", 0),
+            "pago_apos_d2":    efet.get("recuperados_ia", 0),
+        },
+        "score": por_score,
+    }
+
+
+def _serie_12_meses() -> list[dict]:
+    """Retorna até 12 snapshots mensais para o gráfico histórico."""
+    snaps = db.listar_snapshots(12)
+    return [
+        {
+            "mes":          _mes_label(s["mes"]),
+            "inadimplencia": s.get("inadimplencia_pct", 0),
+            "recebido":     s.get("recebido", 0),
+            "atrasado":     s.get("atrasado", 0),
+        }
+        for s in snaps
+    ]
+
+
+@app.route("/api/gerente/overview", methods=["GET"])
+def get_gerente_overview():
+    """KPIs estratégicos + atividade do dia + funil + série histórica."""
+    try:
+        kpis = _calcular_kpis_gerente()
+        kpis["serie_12m"] = _serie_12_meses()
+        return jsonify(kpis)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/gerente/calendario", methods=["GET"])
+def get_gerente_calendario():
+    """
+    Calendário de vencimentos do mês (heatmap).
+    Query: mes=YYYY-MM (default = mês corrente)
+    Retorna: {mes, dias: [{dia, count, valor, pct_pago}], faixas: {alto, medio, baixo}}
+    """
+    import pandas as pd
+    from calendar import monthrange
+
+    try:
+        mes_param = request.args.get("mes", "")
+        hoje = datetime.now()
+        if mes_param:
+            try:
+                ano, mes_n = mes_param.split("-")
+                ano, mes_n = int(ano), int(mes_n)
+            except Exception:
+                ano, mes_n = hoje.year, hoje.month
+        else:
+            ano, mes_n = hoje.year, hoje.month
+
+        ultimo_dia = monthrange(ano, mes_n)[1]
+        dias = {d: {"dia": d, "count": 0, "valor": 0.0,
+                    "pagos": 0, "weekday": 0}
+                for d in range(1, ultimo_dia + 1)}
+
+        # Vencimentos do CSV
+        if os.path.exists(_ARQUIVO_CSV):
+            df = pd.read_csv(_ARQUIVO_CSV)
+            col_venc = None
+            for c in df.columns:
+                if "vencimento" in c.lower() or c.lower() == "datavencimento":
+                    col_venc = c
+                    break
+            for _, row in df.iterrows():
+                v = str(row.get(col_venc, "")) if col_venc else ""
+                if not v or v in ("nan", "None"):
+                    continue
+                dt = None
+                for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
+                    try:
+                        dt = datetime.strptime(v[:10], fmt)
+                        break
+                    except Exception:
+                        continue
+                if not dt or dt.year != ano or dt.month != mes_n:
+                    continue
+                valor = _parse_valor(str(row.get("valorprimeiraparcela", "")))
+                d = dias[dt.day]
+                d["count"] += 1
+                d["valor"] += valor
+
+        # Quem já pagou (via CNY) nesse mês
+        cny_mapa = db.status_cny_mapa()
+        for (_cpf, venc), info in cny_mapa.items():
+            if info.get("status") != "pago":
+                continue
+            try:
+                dt = datetime.strptime(venc, "%d/%m/%Y")
+                if dt.year == ano and dt.month == mes_n:
+                    dias[dt.day]["pagos"] += 1
+            except Exception:
+                continue
+
+        # Calcula pct e weekday
+        for d in range(1, ultimo_dia + 1):
+            entry = dias[d]
+            entry["weekday"] = datetime(ano, mes_n, d).weekday()  # 0=segunda
+            cnt = entry["count"]
+            entry["pct_pago"] = round(entry["pagos"] / cnt * 100, 1) if cnt > 0 else 0
+            entry["valor"] = round(entry["valor"], 2)
+
+        return jsonify({
+            "ano": ano,
+            "mes": mes_n,
+            "label": _mes_label(f"{ano}-{mes_n:02d}"),
+            "hoje": hoje.day if (hoje.year == ano and hoje.month == mes_n) else None,
+            "dias": list(dias.values()),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/gerente/snapshot", methods=["POST"])
+@require_api_key
+def post_gerente_snapshot():
+    """Dispara captura manual do snapshot mensal (também chamado pelo agendador)."""
+    try:
+        k = _calcular_kpis_gerente()
+        db.salvar_snapshot_mensal(
+            mes=k["mes"],
+            inadimplencia_pct=k["inadimplencia_pct"],
+            recebido=k["recebido"],
+            a_receber=k["a_receber"],
+            atrasado=k["atrasado"],
+            em_risco=k["em_risco"],
+            adimplentes=k["adimplentes"],
+            carteira=k["carteira"],
+        )
+        return jsonify({"ok": True, "mes": k["mes"]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     print("API do Dashboard iniciada na porta 5000")
     print(f"Chave de API: {API_SECRET_KEY[:12]}...")

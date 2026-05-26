@@ -132,6 +132,178 @@
         .cob-tab.cob-active .cob-tab-cnt {
             background: rgba(59,130,246,0.28);
         }
+
+        /* ═══════════════════ TELA GERENTE ═══════════════════ */
+        .ger-kpi-row {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 10px;
+            margin-bottom: 22px;
+        }
+        @media(max-width:1400px){ .ger-kpi-row { grid-template-columns: repeat(4,1fr); } }
+        @media(max-width:800px) { .ger-kpi-row { grid-template-columns: repeat(2,1fr); } }
+        .ger-kpi {
+            background: rgba(30,41,59,0.55);
+            border: 1px solid var(--border);
+            border-left: 3px solid #475569;
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+        .ger-kpi .lbl {
+            font-size: 0.66rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+        .ger-kpi .val {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            line-height: 1.1;
+        }
+        .ger-kpi .sub {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 3px;
+        }
+        .ger-kpi.kpi-green  { border-left-color:#10b981; }
+        .ger-kpi.kpi-red    { border-left-color:#ef4444; }
+        .ger-kpi.kpi-amber  { border-left-color:#f59e0b; }
+        .ger-kpi.kpi-blue   { border-left-color:#3b82f6; }
+        .ger-trend-up   { color:#34d399; font-size:0.72rem; font-weight:600; }
+        .ger-trend-down { color:#f87171; font-size:0.72rem; font-weight:600; }
+
+        .ger-row {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        @media(max-width:1100px){ .ger-row { grid-template-columns: 1fr; } }
+        .ger-card {
+            background: rgba(30,41,59,0.55);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 18px;
+        }
+        .ger-card-title {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display:flex; justify-content:space-between; align-items:center;
+        }
+        .ger-card-title .ger-card-sub { font-size:0.7rem; color:#64748b; font-weight:500; text-transform:none; letter-spacing:0; }
+        .ger-perf-grid {
+            display:grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 14px;
+        }
+        .ger-perf-cell .lbl {
+            font-size:0.65rem; color:var(--text-muted);
+            text-transform:uppercase; font-weight:600;
+            margin-bottom: 4px; letter-spacing:0.4px;
+        }
+        .ger-perf-cell .val {
+            font-size: 1.55rem; font-weight: 700; line-height: 1.05;
+        }
+        .ger-perf-cell .val.red { color:#f87171; }
+        .ger-perf-cell .sub { font-size:0.7rem; color:var(--text-muted); margin-top:3px; }
+        .ger-perf-status .ger-row-mini { display:flex; justify-content:space-between; font-size:0.78rem; padding:3px 0; }
+        .ger-perf-status .ger-row-mini span:first-child { color:var(--text-muted); }
+        .ger-perf-status .ger-row-mini span:last-child { color:#cbd5e1; font-weight:600; }
+        .ger-bar-meta {
+            height: 5px; background: rgba(255,255,255,0.08);
+            border-radius: 3px; overflow: hidden;
+            margin-top: 8px;
+        }
+        .ger-bar-meta > div {
+            height: 100%; background: linear-gradient(90deg,#10b981,#059669);
+            border-radius: 3px;
+        }
+
+        .ger-mini-kpi-grid { display:grid; grid-template-columns:1fr; gap:14px; }
+        .ger-mini-kpi { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; }
+        .ger-mini-kpi .left .lbl { font-size:0.65rem; color:var(--text-muted); text-transform:uppercase; font-weight:600; letter-spacing:0.4px; }
+        .ger-mini-kpi .left .val { font-size:1.35rem; font-weight:700; color:#f1f5f9; }
+        .ger-mini-kpi .right { font-size:0.72rem; text-align:right; }
+
+        .ger-atv-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 18px; }
+        .ger-atv-grid .ger-atv-row { display:flex; justify-content:space-between; align-items:center; padding:5px 0; font-size:0.82rem; }
+        .ger-atv-grid .ger-atv-row span:first-child { color:#cbd5e1; display:flex; align-items:center; gap:7px; }
+        .ger-atv-grid .ger-atv-row span:last-child  { color:#f1f5f9; font-weight:700; }
+        .ger-dot { width:7px; height:7px; border-radius:50%; display:inline-block; }
+        .ger-dot.ok      { background:#10b981; }
+        .ger-dot.warn    { background:#f59e0b; }
+        .ger-dot.info    { background:#3b82f6; }
+        .ger-dot.purple  { background:#8b5cf6; }
+        .ger-dot.red     { background:#ef4444; }
+
+        /* ── Calendário heatmap ── */
+        .ger-cal-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+            margin-top: 6px;
+        }
+        .ger-cal-head {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-align: center;
+            font-weight: 600;
+            padding-bottom: 4px;
+        }
+        .ger-cal-cell {
+            aspect-ratio: 1.35;
+            border-radius: 6px;
+            padding: 6px 8px;
+            position: relative;
+            color: #fff;
+            font-size: 0.7rem;
+            border: 1px solid transparent;
+        }
+        .ger-cal-cell.empty { background: transparent; }
+        .ger-cal-cell.future { background: rgba(255,255,255,0.04); color:#64748b; }
+        .ger-cal-cell.alto   { background: #047857; }
+        .ger-cal-cell.medio  { background: #b45309; }
+        .ger-cal-cell.baixo  { background: #b91c1c; }
+        .ger-cal-cell.hoje   { border: 2px solid #60a5fa; }
+        .ger-cal-cell .d-num { font-weight: 700; font-size:0.82rem; display:flex; justify-content:space-between; }
+        .ger-cal-cell .d-num .hoje-tag { font-size:0.6rem; opacity:0.85; }
+        .ger-cal-cell .d-cnt { font-weight:700; font-size:0.95rem; margin-top:2px; }
+        .ger-cal-cell .d-val { opacity: 0.85; font-size:0.66rem; }
+        .ger-cal-legenda {
+            display:flex; gap:14px; font-size:0.7rem; color:var(--text-muted);
+            justify-content:flex-end; margin-bottom: 6px;
+        }
+        .ger-cal-legenda .sq {
+            width:10px; height:10px; border-radius:3px; display:inline-block; margin-right:5px; vertical-align:middle;
+        }
+
+        /* ── Linha 12 meses ── */
+        .ger-line-wrap { height: 180px; position: relative; }
+        .ger-line-wrap svg { width:100%; height:100%; }
+        .ger-line-y { font-size:0.65rem; fill:#64748b; }
+        .ger-line-x { font-size:0.65rem; fill:#64748b; }
+        .ger-line { fill: rgba(239,68,68,0.10); stroke:#ef4444; stroke-width:2; }
+        .ger-line-dot { fill:#ef4444; }
+
+        /* ── Funil ── */
+        .ger-funil-row {
+            display:grid; grid-template-columns: 160px 1fr 60px;
+            gap:10px; align-items:center;
+            padding:6px 0;
+            font-size:0.78rem;
+        }
+        .ger-funil-row .ger-fu-lbl { color:#cbd5e1; }
+        .ger-funil-row .ger-fu-bar { height:22px; background:rgba(255,255,255,0.05); border-radius:5px; position:relative; overflow:hidden; }
+        .ger-funil-row .ger-fu-fill { height:100%; background:linear-gradient(90deg,#3b82f6,#1e40af); border-radius:5px; display:flex; align-items:center; padding-left:9px; color:#fff; font-weight:700; font-size:0.78rem; }
+        .ger-funil-row .ger-fu-fill.cobr { background:linear-gradient(90deg,#0f766e,#0d9488); }
+        .ger-funil-row .ger-fu-pct { text-align:right; color:#94a3b8; font-weight:600; }
     </style>
 </head>
 <body>
@@ -154,6 +326,14 @@
                     <line x1="9" y1="21" x2="9" y2="9"/>
                 </svg>
                 Visão Geral
+            </a>
+            <a href="#gerente" class="menu-item" data-page="gerente" id="menu-gerente">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 3v18h18"/>
+                    <path d="M7 14l4-4 4 4 5-5"/>
+                </svg>
+                Gerente
             </a>
             <a href="#clientes" class="menu-item" data-page="clientes" id="menu-clientes">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -246,6 +426,164 @@
                 </button>
             </div>
         </header>
+
+        <!-- ═══════════════════ PÁGINA: GERENTE ═══════════════════ -->
+        <section id="gerente" class="page-section" style="margin-bottom:48px;">
+            <!-- KPI ROW -->
+            <div class="ger-kpi-row">
+                <div class="ger-kpi kpi-blue">
+                    <div class="lbl">Carteira ativa</div>
+                    <div class="val" id="ger-carteira">—</div>
+                    <div class="sub">cotas</div>
+                </div>
+                <div class="ger-kpi">
+                    <div class="lbl">A receber <span id="ger-mes-lbl"></span></div>
+                    <div class="val" id="ger-areceber">—</div>
+                    <div class="sub">&nbsp;</div>
+                </div>
+                <div class="ger-kpi kpi-green">
+                    <div class="lbl">Recebido</div>
+                    <div class="val" id="ger-recebido">—</div>
+                    <div class="sub" id="ger-recebido-var">&nbsp;</div>
+                </div>
+                <div class="ger-kpi kpi-red">
+                    <div class="lbl">Atrasado</div>
+                    <div class="val" id="ger-atrasado">—</div>
+                    <div class="sub" id="ger-atrasado-var">&nbsp;</div>
+                </div>
+                <div class="ger-kpi kpi-amber">
+                    <div class="lbl">Inadimplência</div>
+                    <div class="val" id="ger-inadimpl">—</div>
+                    <div class="sub" id="ger-inadimpl-var">&nbsp;</div>
+                </div>
+                <div class="ger-kpi kpi-green">
+                    <div class="lbl">Adimplentes</div>
+                    <div class="val" id="ger-adimpl">—</div>
+                    <div class="sub" id="ger-adimpl-pct">&nbsp;</div>
+                </div>
+                <div class="ger-kpi kpi-red">
+                    <div class="lbl">Em risco</div>
+                    <div class="val" id="ger-em-risco">—</div>
+                    <div class="sub">3+ atrasos</div>
+                </div>
+            </div>
+
+            <!-- ROW: PERFORMANCE | MINI KPIs | ATIVIDADE HOJE -->
+            <div class="ger-row">
+                <div class="ger-card">
+                    <div class="ger-card-title">
+                        <span>Performance do Ciclo · <span id="ger-perf-mes">—</span></span>
+                        <span class="ger-card-sub" id="ger-perf-progress">—</span>
+                    </div>
+                    <div class="ger-perf-grid">
+                        <div class="ger-perf-cell">
+                            <div class="lbl">Recebido / Meta</div>
+                            <div class="val" id="ger-perf-recebido">—</div>
+                            <div class="sub" id="ger-perf-meta">de —</div>
+                            <div class="ger-bar-meta"><div id="ger-perf-bar" style="width:0%"></div></div>
+                        </div>
+                        <div class="ger-perf-cell">
+                            <div class="lbl">Em Atraso</div>
+                            <div class="val red" id="ger-perf-atrasado">—</div>
+                            <div class="sub" id="ger-perf-atrasado-sub">— clientes</div>
+                        </div>
+                        <div class="ger-perf-cell ger-perf-status">
+                            <div class="lbl">Status NEWCON</div>
+                            <div class="ger-row-mini"><span>Conciliados</span><span id="ger-nc-conc">—</span></div>
+                            <div class="ger-row-mini"><span>Em aberto</span><span id="ger-nc-aberto">—</span></div>
+                            <div class="ger-row-mini"><span>Última sync</span><span id="ger-nc-sync">—</span></div>
+                            <div class="ger-row-mini"><span>Erros</span><span id="ger-nc-erros">0</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ger-card">
+                    <div class="ger-mini-kpi-grid">
+                        <div class="ger-mini-kpi">
+                            <div class="left">
+                                <div class="lbl">Inadimpl.</div>
+                                <div class="val" id="ger-mk-inadimpl">—</div>
+                            </div>
+                            <div class="right" id="ger-mk-inadimpl-var">&nbsp;</div>
+                        </div>
+                        <div class="ger-mini-kpi">
+                            <div class="left">
+                                <div class="lbl">Conversão envio→pago</div>
+                                <div class="val" id="ger-mk-conv">—</div>
+                            </div>
+                            <div class="right" id="ger-mk-conv-mes">&nbsp;</div>
+                        </div>
+                        <div class="ger-mini-kpi">
+                            <div class="left">
+                                <div class="lbl">Ticket médio</div>
+                                <div class="val" id="ger-mk-ticket">—</div>
+                            </div>
+                            <div class="right">parcela vigente</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ger-card">
+                    <div class="ger-card-title">
+                        <span>Atividade · Hoje</span>
+                        <span class="ger-card-sub" id="ger-now-clock">—</span>
+                    </div>
+                    <div class="ger-atv-grid">
+                        <div class="ger-atv-row"><span><i class="ger-dot info"></i>Boletos enviados</span><span id="ger-atv-bol">0</span></div>
+                        <div class="ger-atv-row"><span><i class="ger-dot ok"></i>Pagamentos recebidos</span><span id="ger-atv-pag">0</span></div>
+                        <div class="ger-atv-row"><span><i class="ger-dot red"></i>Novos atrasos</span><span id="ger-atv-novos">0</span></div>
+                        <div class="ger-atv-row"><span><i class="ger-dot warn"></i>Ligações realizadas</span><span id="ger-atv-lig">0</span></div>
+                        <div class="ger-atv-row"><span><i class="ger-dot purple"></i>WhatsApp respondidos</span><span id="ger-atv-wpp">0</span></div>
+                        <div class="ger-atv-row"><span><i class="ger-dot info"></i>2ª vias geradas</span><span id="ger-atv-2v">0</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CALENDÁRIO HEATMAP -->
+            <div class="ger-card" style="margin-bottom:22px;">
+                <div class="ger-card-title">
+                    <span>Calendário de vencimentos · <span id="ger-cal-titulo">—</span></span>
+                    <span class="ger-card-sub">Intensidade = R$ a receber · Cor = % já pago</span>
+                </div>
+                <div class="ger-cal-legenda">
+                    <span><span class="sq" style="background:#047857"></span>≥90% pago</span>
+                    <span><span class="sq" style="background:#b45309"></span>50-90%</span>
+                    <span><span class="sq" style="background:#b91c1c"></span>&lt;50%</span>
+                    <span><span class="sq" style="background:rgba(255,255,255,0.04);border:1px solid var(--border)"></span>futuro</span>
+                </div>
+                <div class="ger-cal-grid" id="ger-cal-grid">
+                    <div class="ger-cal-head">Dom</div>
+                    <div class="ger-cal-head">Seg</div>
+                    <div class="ger-cal-head">Ter</div>
+                    <div class="ger-cal-head">Qua</div>
+                    <div class="ger-cal-head">Qui</div>
+                    <div class="ger-cal-head">Sex</div>
+                    <div class="ger-cal-head">Sáb</div>
+                </div>
+            </div>
+
+            <!-- LINHA INADIMPLÊNCIA + FUNIL -->
+            <div class="ger-row" style="grid-template-columns:1fr 1fr;">
+                <div class="ger-card">
+                    <div class="ger-card-title">
+                        <span>Inadimplência · 12 meses</span>
+                        <span class="ger-card-sub" id="ger-line-range">—</span>
+                    </div>
+                    <div class="ger-line-wrap" id="ger-line-wrap">
+                        <p style="color:var(--text-muted);font-size:0.78rem;text-align:center;padding:60px 0;">Aguardando dados históricos…</p>
+                    </div>
+                </div>
+                <div class="ger-card">
+                    <div class="ger-card-title">
+                        <span>Funil de cobrança · <span id="ger-funil-mes">—</span></span>
+                        <span class="ger-card-sub" id="ger-funil-total">— boletos</span>
+                    </div>
+                    <div id="ger-funil">
+                        <p style="color:var(--text-muted);font-size:0.78rem;">Carregando…</p>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         <!-- ═══════════════════ PÁGINA: VISÃO GERAL ═══════════════════ -->
         <div id="visao-geral" class="page-section">

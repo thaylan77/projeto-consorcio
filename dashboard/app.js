@@ -379,7 +379,7 @@ function renderPaginacaoClientes(total, offset, busca) {
 // =============================================================================
 // ROTEADOR DE PÁGINAS (hash-based)
 // =============================================================================
-const PAGINAS_VALIDAS = ['visao-geral', 'clientes', 'boletos', 'cobranca', 'efetividade', 'historico'];
+const PAGINAS_VALIDAS = ['visao-geral', 'gerente', 'clientes', 'boletos', 'cobranca', 'efetividade', 'historico'];
 
 function routeTo(pagina) {
     if (!PAGINAS_VALIDAS.includes(pagina)) pagina = 'visao-geral';
@@ -400,6 +400,7 @@ function routeTo(pagina) {
     // Atualiza título da aba
     const nomes = {
         'visao-geral':  'Visão Geral',
+        'gerente':      'Gerente',
         'clientes':     'Clientes',
         'boletos':      'Boletos',
         'cobranca':     'Cobrança',
@@ -407,6 +408,8 @@ function routeTo(pagina) {
         'historico':    'Histórico',
     };
     document.title = `${nomes[pagina] || pagina} | Consórcio Yamaha`;
+
+    if (pagina === 'gerente') fetchGerente();
 }
 
 function paginaAtual() {
@@ -906,6 +909,236 @@ document.getElementById('cob-search').addEventListener('input', e => {
 
 // Carrega junto com o dashboard
 fetchCobranca();
+
+// =============================================================================
+// TELA GERENTE
+// =============================================================================
+function _fmtBRL(v) {
+    if (v == null || isNaN(v)) return '—';
+    const n = Number(v);
+    if (n >= 1_000_000) return 'R$ ' + (n / 1_000_000).toFixed(2).replace('.', ',') + 'M';
+    if (n >= 10_000)   return 'R$ ' + Math.round(n / 1000).toLocaleString('pt-BR') + 'k';
+    if (n >= 1_000)    return 'R$ ' + (n / 1000).toFixed(1).replace('.', ',') + 'k';
+    return 'R$ ' + n.toFixed(2).replace('.', ',');
+}
+
+function _fmtNum(v) {
+    if (v == null) return '—';
+    return Number(v).toLocaleString('pt-BR');
+}
+
+function _fmtVar(v, suffix) {
+    if (v == null) return '';
+    const cls = v >= 0 ? 'ger-trend-up' : 'ger-trend-down';
+    const arrow = v >= 0 ? '▲' : '▼';
+    return `<span class="${cls}">${arrow} ${Math.abs(v).toFixed(1).replace('.', ',')}${suffix || '%'}</span>`;
+}
+
+async function fetchGerente() {
+    try {
+        const [overview, calendario] = await Promise.all([
+            fetch('/api/gerente/overview').then(r => r.json()),
+            fetch('/api/gerente/calendario').then(r => r.json()),
+        ]);
+        renderGerenteKPIs(overview);
+        renderGerenteCalendario(calendario);
+        renderGerenteSerie(overview.serie_12m || []);
+        renderGerenteFunil(overview.funil || {}, overview.mes_label || '');
+    } catch (e) {
+        console.error('fetchGerente:', e);
+    }
+}
+
+function renderGerenteKPIs(o) {
+    const mes = o.mes_label || '';
+    document.getElementById('ger-mes-lbl').textContent = mes;
+    document.getElementById('ger-carteira').textContent = _fmtNum(o.carteira);
+    document.getElementById('ger-areceber').textContent = _fmtBRL(o.a_receber);
+    document.getElementById('ger-recebido').textContent = _fmtBRL(o.recebido);
+    document.getElementById('ger-atrasado').textContent = _fmtBRL(o.atrasado);
+    document.getElementById('ger-inadimpl').textContent =
+        (o.inadimplencia_pct ?? 0).toFixed(1).replace('.', ',') + '%';
+    document.getElementById('ger-adimpl').textContent = _fmtNum(o.adimplentes);
+    document.getElementById('ger-adimpl-pct').textContent =
+        (o.adimplentes_pct ?? 0).toFixed(1).replace('.', ',') + '%';
+    document.getElementById('ger-em-risco').textContent = _fmtNum(o.em_risco);
+
+    const v = o.variacoes || {};
+    document.getElementById('ger-recebido-var').innerHTML = _fmtVar(v.recebido_pct, '%');
+    document.getElementById('ger-atrasado-var').innerHTML = _fmtVar(
+        v.atrasado_pct == null ? null : -v.atrasado_pct, '%');
+    document.getElementById('ger-inadimpl-var').innerHTML = _fmtVar(
+        v.inadimpl_pp == null ? null : -v.inadimpl_pp, 'pp');
+
+    // Performance
+    document.getElementById('ger-perf-mes').textContent = mes;
+    const metaPct = o.meta_pct ?? 0;
+    document.getElementById('ger-perf-recebido').textContent = _fmtBRL(o.recebido);
+    document.getElementById('ger-perf-meta').textContent =
+        `de ${_fmtBRL(o.a_receber)} · ${metaPct.toFixed(1).replace('.', ',')}%`;
+    document.getElementById('ger-perf-bar').style.width = Math.min(metaPct, 100) + '%';
+    document.getElementById('ger-perf-atrasado').textContent = _fmtBRL(o.atrasado);
+    document.getElementById('ger-perf-atrasado-sub').textContent =
+        `${_fmtNum(o.atrasado_count)} clientes · ${(o.inadimplencia_pct ?? 0).toFixed(1).replace('.', ',')}%`;
+
+    const nc = o.newcon || {};
+    document.getElementById('ger-nc-conc').textContent = _fmtNum(nc.conciliados);
+    document.getElementById('ger-nc-aberto').textContent = _fmtNum(nc.em_aberto);
+    document.getElementById('ger-nc-sync').textContent = nc.ultima_sync || '—';
+    document.getElementById('ger-nc-erros').textContent = _fmtNum(nc.erros);
+
+    // Mini KPIs
+    document.getElementById('ger-mk-inadimpl').textContent =
+        (o.inadimplencia_pct ?? 0).toFixed(1).replace('.', ',') + '%';
+    document.getElementById('ger-mk-inadimpl-var').innerHTML = _fmtVar(
+        v.inadimpl_pp == null ? null : -v.inadimpl_pp, 'pp') + '<br><span style="color:#64748b">vs mês ant.</span>';
+    document.getElementById('ger-mk-conv').textContent =
+        (o.conversao_pct ?? 0).toFixed(1).replace('.', ',') + '%';
+    document.getElementById('ger-mk-conv-mes').innerHTML = `<span style="color:#64748b">${mes}</span>`;
+    document.getElementById('ger-mk-ticket').textContent = _fmtBRL(o.ticket_medio);
+
+    // Atividade hoje
+    const a = o.atividade_hoje || {};
+    document.getElementById('ger-atv-bol').textContent   = _fmtNum(a.boletos_enviados);
+    document.getElementById('ger-atv-pag').textContent   = _fmtNum(a.pagamentos);
+    document.getElementById('ger-atv-novos').textContent = _fmtNum(a.novos_atrasos);
+    document.getElementById('ger-atv-lig').textContent   = _fmtNum(a.ligacoes);
+    document.getElementById('ger-atv-wpp').textContent   = _fmtNum(a.whatsapp_respond);
+    document.getElementById('ger-atv-2v').textContent    = _fmtNum(a.segundas_vias);
+
+    const now = new Date();
+    document.getElementById('ger-now-clock').textContent =
+        now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderGerenteCalendario(c) {
+    const grid = document.getElementById('ger-cal-grid');
+    if (!grid) return;
+    // Remove tudo após os 7 headers
+    [...grid.querySelectorAll(':not(.ger-cal-head)')].forEach(n => n.remove());
+
+    document.getElementById('ger-cal-titulo').textContent = c.label || '—';
+
+    const dias = c.dias || [];
+    if (!dias.length) return;
+
+    // Domingo=0 ... Sábado=6
+    const primeiroJS = (() => {
+        // weekday do dia 1: dias[0].weekday é 0..6 (segunda=0)
+        // converter: segunda(0)→1, terça(1)→2, ..., sábado(5)→6, domingo(6)→0
+        const w = dias[0].weekday;
+        return (w + 1) % 7;
+    })();
+
+    // Células vazias antes do dia 1
+    for (let i = 0; i < primeiroJS; i++) {
+        const empty = document.createElement('div');
+        empty.className = 'ger-cal-cell empty';
+        grid.appendChild(empty);
+    }
+
+    dias.forEach(d => {
+        const cell = document.createElement('div');
+        const ehHoje = c.hoje === d.dia;
+
+        let classe = 'ger-cal-cell';
+        if (d.count === 0) {
+            classe += ' future';
+        } else {
+            const pct = d.pct_pago || 0;
+            if (pct >= 90)      classe += ' alto';
+            else if (pct >= 50) classe += ' medio';
+            else                classe += ' baixo';
+        }
+        if (ehHoje) classe += ' hoje';
+        cell.className = classe;
+
+        cell.innerHTML = `
+            <div class="d-num">${d.dia}${ehHoje ? '<span class="hoje-tag">HOJE</span>' : ''}</div>
+            ${d.count > 0 ? `
+                <div class="d-cnt">${d.count}</div>
+                <div class="d-val">${_fmtBRL(d.valor)}</div>
+            ` : ''}
+        `;
+        cell.title = d.count > 0
+            ? `${d.count} vencimentos · ${_fmtBRL(d.valor)} · ${d.pct_pago}% pago`
+            : 'Sem vencimentos';
+        grid.appendChild(cell);
+    });
+}
+
+function renderGerenteSerie(serie) {
+    const wrap = document.getElementById('ger-line-wrap');
+    if (!wrap) return;
+
+    if (!serie.length) {
+        wrap.innerHTML = `<p style="color:var(--text-muted);font-size:0.78rem;text-align:center;padding:60px 0;">
+            Aguardando dados históricos…<br>
+            <span style="font-size:0.7rem;">O primeiro snapshot mensal é gerado no dia 1º.</span></p>`;
+        return;
+    }
+
+    const W = 600, H = 170, padL = 30, padR = 10, padT = 12, padB = 22;
+    const innerW = W - padL - padR;
+    const innerH = H - padT - padB;
+    const valores = serie.map(s => s.inadimplencia);
+    const minV = Math.min(...valores, 0);
+    const maxV = Math.max(...valores, 1);
+    const span = (maxV - minV) || 1;
+
+    const x = i => padL + (serie.length === 1 ? innerW / 2 : (i / (serie.length - 1)) * innerW);
+    const y = v => padT + innerH - ((v - minV) / span) * innerH;
+
+    const pts = serie.map((s, i) => `${x(i)},${y(s.inadimplencia)}`).join(' ');
+    const area = `${x(0)},${padT + innerH} ${pts} ${x(serie.length - 1)},${padT + innerH}`;
+    const dots = serie.map((s, i) =>
+        `<circle class="ger-line-dot" cx="${x(i)}" cy="${y(s.inadimplencia)}" r="3"></circle>`
+    ).join('');
+    const lbls = serie.map((s, i) =>
+        `<text class="ger-line-x" x="${x(i)}" y="${H - 6}" text-anchor="middle">${s.mes}</text>`
+    ).join('');
+
+    const yLabels = [maxV, (maxV + minV) / 2, minV].map(v =>
+        `<text class="ger-line-y" x="${padL - 5}" y="${y(v) + 3}" text-anchor="end">${v.toFixed(0)}%</text>`
+    ).join('');
+
+    document.getElementById('ger-line-range').textContent =
+        `min ${minV.toFixed(1)}% · máx ${maxV.toFixed(1)}%`;
+
+    wrap.innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+            ${yLabels}
+            <polygon class="ger-line" points="${area}"></polygon>
+            ${dots}
+            ${lbls}
+        </svg>`;
+}
+
+function renderGerenteFunil(f, mes) {
+    document.getElementById('ger-funil-mes').textContent = mes;
+    const total = f.boletos_gerados || 0;
+    document.getElementById('ger-funil-total').textContent = `${_fmtNum(total)} boletos`;
+
+    const cont = document.getElementById('ger-funil');
+    const pct = v => total > 0 ? (v / total * 100) : 0;
+    const linha = (lbl, val, classe='') => `
+        <div class="ger-funil-row">
+            <div class="ger-fu-lbl">${lbl}</div>
+            <div class="ger-fu-bar">
+                <div class="ger-fu-fill ${classe}" style="width:${Math.min(pct(val), 100)}%">
+                    ${val > 0 ? _fmtNum(val) : ''}
+                </div>
+            </div>
+            <div class="ger-fu-pct">${pct(val).toFixed(1).replace('.', ',')}%</div>
+        </div>
+    `;
+    cont.innerHTML =
+        linha('Boletos gerados',     f.boletos_gerados) +
+        linha('Enviado D-7 (WhatsApp)', f.enviado_d7) +
+        linha('Pago após D-7',        f.pago_apos_d7, 'cobr') +
+        linha('Enviado D-2',          f.enviado_d2) +
+        linha('Pago após D-2',        f.pago_apos_d2, 'cobr');
+}
 
 // Ativa a página correta (roda por último, depois de todos os listeners)
 routeTo(paginaAtual());

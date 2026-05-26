@@ -74,6 +74,18 @@ CREATE TABLE IF NOT EXISTS tentativas_ligacao (
 
 CREATE INDEX IF NOT EXISTS idx_tentativas_cpf     ON tentativas_ligacao(cpf);
 CREATE INDEX IF NOT EXISTS idx_tentativas_retorno ON tentativas_ligacao(data_retorno);
+
+CREATE TABLE IF NOT EXISTS snapshot_mensal (
+    mes               TEXT PRIMARY KEY,
+    inadimplencia_pct REAL NOT NULL DEFAULT 0,
+    recebido          REAL NOT NULL DEFAULT 0,
+    a_receber         REAL NOT NULL DEFAULT 0,
+    atrasado          REAL NOT NULL DEFAULT 0,
+    em_risco          INTEGER NOT NULL DEFAULT 0,
+    adimplentes       INTEGER NOT NULL DEFAULT 0,
+    carteira          INTEGER NOT NULL DEFAULT 0,
+    capturado_em      TEXT NOT NULL
+);
 """
 
 
@@ -446,6 +458,34 @@ def proximas_ligacoes_agendadas() -> list[dict]:
             (hoje,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# =============================================================================
+# SNAPSHOT MENSAL (histórico para a tela gerencial)
+# =============================================================================
+def salvar_snapshot_mensal(mes: str, inadimplencia_pct: float, recebido: float,
+                            a_receber: float, atrasado: float, em_risco: int,
+                            adimplentes: int, carteira: int) -> None:
+    """Persiste snapshot de KPIs para o mês informado (formato YYYY-MM)."""
+    with _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO snapshot_mensal "
+            "(mes, inadimplencia_pct, recebido, a_receber, atrasado, em_risco, "
+            " adimplentes, carteira, capturado_em) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (mes, inadimplencia_pct, recebido, a_receber, atrasado, em_risco,
+             adimplentes, carteira,
+             datetime.now().strftime("%d/%m/%Y %H:%M:%S")),
+        )
+
+
+def listar_snapshots(meses: int = 12) -> list[dict]:
+    """Retorna últimos N snapshots ordenados cronologicamente (mais antigo primeiro)."""
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT * FROM snapshot_mensal ORDER BY mes DESC LIMIT ?", (meses,)
+        ).fetchall()
+    return [dict(r) for r in reversed(rows)]
 
 
 def listar_pagamentos() -> list[dict]:
