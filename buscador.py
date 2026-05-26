@@ -221,15 +221,28 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
         linhas_iniciais = tabela.find_elements(By.TAG_NAME, "tr")
         indices_para_baixar = []
 
-        # Inspeção detalhada da tabela — TODAS as linhas, com checkbox e estado
+        # Inspeção detalhada da tabela — TODAS as linhas com TODAS as colunas
+        # Layout confirmado por screenshot: # Cota | Pcl | Histórico | Vencimento |
+        # Valor | Multa | Juros | Vl. devido | Vl. receber
+        # Critério correto: usar "Vl. receber" (última coluna não-vazia), não "Valor".
         log(f"Tabela com {len(linhas_iniciais)} linhas para {nome_cliente}:", modulo=MODULO)
         for i, linha in enumerate(linhas_iniciais):
             colunas = linha.find_elements(By.TAG_NAME, "td")
             if len(colunas) <= 5:
                 continue
 
-            valor_str = colunas[5].text.strip()
-            venc_str  = colunas[4].text.strip() if len(colunas) > 4 else ""
+            textos = [c.text.strip() for c in colunas]
+            venc_str = textos[4] if len(textos) > 4 else ""
+            valor_str = textos[5] if len(textos) > 5 else ""
+
+            # "Vl. receber" tipicamente é a última coluna numérica. Pegamos o último
+            # texto que parece valor monetário.
+            vl_receber_str = ""
+            for t in reversed(textos):
+                if re.match(r"^[\d\.,]+$", t.replace(",", "").replace(".", "")):
+                    vl_receber_str = t
+                    break
+            vl_receber = limpar_valor(vl_receber_str)
             valor_float = limpar_valor(valor_str)
 
             checkboxes = linha.find_elements(By.CSS_SELECTOR, "input[id*='imgEmite_Boleto']")
@@ -244,17 +257,27 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
             else:
                 chk_estado = "SEM_CHECKBOX"
 
-            log(f"  linha[{i:>2}] venc={venc_str:>10} valor={valor_str:>12} {chk_estado}",
-                modulo=MODULO)
+            # Log compacto: índice, vencimento, valor, vl_receber e estado
+            log(f"  linha[{i:>2}] venc={venc_str:>10} valor={valor_str:>10} "
+                f"vl_receber={vl_receber_str:>10} {chk_estado}", modulo=MODULO)
+            # Log completo das colunas, útil pra debug inicial
+            log(f"    colunas={textos}", modulo=MODULO)
 
-            if valor_float >= VALOR_MINIMO_EMISSAO and checkboxes:
+            # NOVO critério: só baixa se (a) vl_receber > 0 — há de fato algo pra cobrar
+            # AND (b) checkbox disponível — CNY permite emitir
+            # AND (c) valor da parcela acima do mínimo
+            if (vl_receber > 0 and checkboxes
+                    and valor_float >= VALOR_MINIMO_EMISSAO):
                 indices_para_baixar.append(i)
-            elif valor_float > 0 and valor_float < VALOR_MINIMO_EMISSAO:
+            elif vl_receber <= 0:
+                log(f"    -> pulada (Vl.receber=R$ {vl_receber_str or '0'} — nada a cobrar)",
+                    modulo=MODULO)
+            elif valor_float < VALOR_MINIMO_EMISSAO:
                 parcelas_ignoradas += 1
-                log(f"    -> ignorada (abaixo do minimo R$ {VALOR_MINIMO_EMISSAO})", modulo=MODULO)
-            elif valor_float >= VALOR_MINIMO_EMISSAO and not checkboxes:
-                log(f"    -> ATENCAO: valor ok mas sem checkbox (boleto ja emitido?)",
-                    "WARNING", MODULO)
+                log(f"    -> ignorada (valor abaixo do minimo R$ {VALOR_MINIMO_EMISSAO})",
+                    modulo=MODULO)
+            elif not checkboxes:
+                log(f"    -> ATENCAO: vl_receber ok mas sem checkbox", "WARNING", MODULO)
 
         if not indices_para_baixar:
             log(f"Nenhuma parcela valida para {nome_cliente}.", modulo=MODULO)
