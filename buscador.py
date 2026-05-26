@@ -125,8 +125,17 @@ def iniciar_e_logar():
 # =============================================================================
 # PROCESSAR CLIENTE
 # =============================================================================
-def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
+def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
+    """
+    Processa um cliente no CNY. Retorna dict com a categoria do resultado
+    para fins de telemetria:
+      categoria ∈ {quitado_cancelado, sem_contrato, abrir_contrato_falhou,
+                   sem_parcela_valida, baixou}
+      baixados  : nº de PDFs efetivamente salvos
+      ignoradas : nº de parcelas vistas mas com valor < mínimo
+    """
     log(f"Iniciando: {nome_cliente} (CPF: {cpf})", modulo=MODULO)
+    parcelas_ignoradas = 0
 
     try:
         # --- RESET DE TELA ---
@@ -175,10 +184,11 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
             status_ruins = {"CAN", "CANCELADO", "QUI", "QUITADO", "EXCLUIDO", "CA2", "TRA", "SUS"}
             if situacao in status_ruins:
                 log(f"Status '{situacao}' ignorado para {nome_cliente}.", modulo=MODULO)
-                return True
+                return {"categoria": "quitado_cancelado", "baixados": 0,
+                        "ignoradas": 0, "status": situacao}
         except Exception:
             log(f"CPF {cpf} nao retornou contrato.", modulo=MODULO)
-            return True
+            return {"categoria": "sem_contrato", "baixados": 0, "ignoradas": 0}
 
         # --- ENTRAR NO CONTRATO ---
         try:
@@ -188,7 +198,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
             wait.until(EC.element_to_be_clickable((By.ID, "ctl00_Conteudo_btnConfirma")))
         except Exception:
             log(f"Falha ao abrir contrato de {nome_cliente}.", "ERROR", MODULO)
-            return False
+            return {"categoria": "abrir_contrato_falhou", "baixados": 0, "ignoradas": 0}
 
         # --- CONFIRMAR E LOCALIZAR ---
         wait.until(EC.element_to_be_clickable((By.ID, "ctl00_Conteudo_btnConfirma"))).click()
@@ -218,13 +228,16 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
                 if valor_float >= VALOR_MINIMO_EMISSAO:
                     indices_para_baixar.append(i)
                 elif valor_float > 0:
+                    parcelas_ignoradas += 1
                     log(f"Parcela R$ {colunas[5].text.strip()} ignorada (abaixo do minimo).", modulo=MODULO)
 
         if not indices_para_baixar:
             log(f"Nenhuma parcela valida para {nome_cliente}.", modulo=MODULO)
-            return True
+            return {"categoria": "sem_parcela_valida", "baixados": 0,
+                    "ignoradas": parcelas_ignoradas}
 
         log(f"{len(indices_para_baixar)} parcelas validas para {nome_cliente}.", modulo=MODULO)
+        baixados_aqui = 0
 
         for index_linha in indices_para_baixar:
             tabela = wait.until(
@@ -270,6 +283,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
                         try:
                             shutil.move(arquivo_baixado, caminho_final)
                             log(f"Salvo: {nome_final}", "SUCCESS", MODULO)
+                            baixados_aqui += 1
                             break
                         except PermissionError:
                             time.sleep(1)
@@ -287,7 +301,8 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
             except Exception:
                 pass  # não crítico — só necessário quando há múltiplas parcelas
 
-        return True
+        return {"categoria": "baixou", "baixados": baixados_aqui,
+                "ignoradas": parcelas_ignoradas}
 
     except Exception as e:
         tipo_erro = type(e).__name__
@@ -343,7 +358,13 @@ def main():
     max_relogin = 5
     tentativas = 0
     erros_por_tipo: dict[str, int] = {}
-    sucessos = 0
+    categorias: dict[str, int] = {
+        "baixou": 0, "quitado_cancelado": 0, "sem_contrato": 0,
+        "abrir_contrato_falhou": 0, "sem_parcela_valida": 0,
+    }
+    total_pdfs   = 0
+    total_ignor  = 0
+    sucessos     = 0
 
     while tentativas < max_relogin and clientes_restantes:
         driver, wait = iniciar_e_logar()
@@ -364,8 +385,12 @@ def main():
                 log(f"[{i+1}/{total}] {nome} (Venda: {data_venda})", modulo=MODULO)
 
                 try:
-                    processar_cliente(driver, wait, cpf, nome)
+                    res = processar_cliente(driver, wait, cpf, nome)
                     sucessos += 1
+                    cat = res.get("categoria", "?") if isinstance(res, dict) else "?"
+                    categorias[cat] = categorias.get(cat, 0) + 1
+                    total_pdfs  += res.get("baixados", 0) if isinstance(res, dict) else 0
+                    total_ignor += res.get("ignoradas", 0) if isinstance(res, dict) else 0
                 except Exception as e:
                     tipo_erro = type(e).__name__
                     erros_por_tipo[tipo_erro] = erros_por_tipo.get(tipo_erro, 0) + 1
@@ -404,8 +429,21 @@ def main():
                         break  # sai do for, while reabre o driver
 
             log("Pipeline do buscador finalizado.", "SUCCESS", MODULO)
-            log(f"Resumo: sucessos={sucessos} | erros por tipo: "
-                f"{erros_por_tipo or '{}'}", modulo=MODULO)
+            log("=" * 55, modulo=MODULO)
+            log("RESUMO DO BUSCADOR", modulo=MODULO)
+            log(f"  Sucessos      : {sucessos}", modulo=MODULO)
+            log(f"  PDFs baixados : {total_pdfs}", modulo=MODULO)
+            log(f"  Parcelas abaixo do minimo (ignoradas): {total_ignor}",
+                modulo=MODULO)
+            log("  Categorias de saida:", modulo=MODULO)
+            for cat, n in sorted(categorias.items(), key=lambda x: -x[1]):
+                if n > 0:
+                    log(f"    {cat:25s}: {n}", modulo=MODULO)
+            if erros_por_tipo:
+                log("  Erros por tipo:", modulo=MODULO)
+                for tp, n in sorted(erros_por_tipo.items(), key=lambda x: -x[1]):
+                    log(f"    {tp:25s}: {n}", modulo=MODULO)
+            log("=" * 55, modulo=MODULO)
             try:
                 driver.quit()
             except Exception:
@@ -428,7 +466,8 @@ def main():
             time.sleep(5)
 
     log(f"Limite de tentativas de re-login atingido. "
-        f"Sucessos: {sucessos} | erros por tipo: {erros_por_tipo or '{}'}",
+        f"Sucessos: {sucessos} | PDFs: {total_pdfs} | "
+        f"categorias: {categorias} | erros: {erros_por_tipo or '{}'}",
         "ERROR", MODULO)
 
 
