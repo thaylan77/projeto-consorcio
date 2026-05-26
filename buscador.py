@@ -221,15 +221,40 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
         linhas_iniciais = tabela.find_elements(By.TAG_NAME, "tr")
         indices_para_baixar = []
 
+        # Inspeção detalhada da tabela — TODAS as linhas, com checkbox e estado
+        log(f"Tabela com {len(linhas_iniciais)} linhas para {nome_cliente}:", modulo=MODULO)
         for i, linha in enumerate(linhas_iniciais):
             colunas = linha.find_elements(By.TAG_NAME, "td")
-            if len(colunas) > 5:
-                valor_float = limpar_valor(colunas[5].text.strip())
-                if valor_float >= VALOR_MINIMO_EMISSAO:
-                    indices_para_baixar.append(i)
-                elif valor_float > 0:
-                    parcelas_ignoradas += 1
-                    log(f"Parcela R$ {colunas[5].text.strip()} ignorada (abaixo do minimo).", modulo=MODULO)
+            if len(colunas) <= 5:
+                continue
+
+            valor_str = colunas[5].text.strip()
+            venc_str  = colunas[4].text.strip() if len(colunas) > 4 else ""
+            valor_float = limpar_valor(valor_str)
+
+            checkboxes = linha.find_elements(By.CSS_SELECTOR, "input[id*='imgEmite_Boleto']")
+            if checkboxes:
+                src = checkboxes[0].get_attribute("src") or ""
+                if "ckUnchecked" in src:
+                    chk_estado = "checkbox:vazio"
+                elif "ckChecked" in src:
+                    chk_estado = "checkbox:marcado"
+                else:
+                    chk_estado = "checkbox:?"
+            else:
+                chk_estado = "SEM_CHECKBOX"
+
+            log(f"  linha[{i:>2}] venc={venc_str:>10} valor={valor_str:>12} {chk_estado}",
+                modulo=MODULO)
+
+            if valor_float >= VALOR_MINIMO_EMISSAO and checkboxes:
+                indices_para_baixar.append(i)
+            elif valor_float > 0 and valor_float < VALOR_MINIMO_EMISSAO:
+                parcelas_ignoradas += 1
+                log(f"    -> ignorada (abaixo do minimo R$ {VALOR_MINIMO_EMISSAO})", modulo=MODULO)
+            elif valor_float >= VALOR_MINIMO_EMISSAO and not checkboxes:
+                log(f"    -> ATENCAO: valor ok mas sem checkbox (boleto ja emitido?)",
+                    "WARNING", MODULO)
 
         if not indices_para_baixar:
             log(f"Nenhuma parcela valida para {nome_cliente}.", modulo=MODULO)
