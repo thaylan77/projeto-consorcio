@@ -25,6 +25,7 @@ app.log*
 progresso_buscador.json
 relatorio_microwork_consorcio.csv
 erro_login.png
+diagnostico_buscador/
 
 # Boletos (dados sensíveis de clientes)
 boletos/

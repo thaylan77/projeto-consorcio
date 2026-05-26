@@ -22,6 +22,11 @@ from logger import log
 MODULO = "Buscador"
 arquivo_csv = "relatorio_microwork_consorcio.csv"
 ARQUIVO_PROGRESSO = "progresso_buscador.json"
+PASTA_DIAGNOSTICO = "diagnostico_buscador"
+
+# Reinicia o driver a cada N clientes para evitar vazamento de memória
+# do Chrome headless em execuções longas.
+RESTART_INTERVAL = 50
 
 
 def _criar_options() -> webdriver.ChromeOptions:
@@ -285,7 +290,19 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> bool:
         return True
 
     except Exception as e:
-        log(f"Erro geral em {nome_cliente}: {e}", "ERROR", MODULO)
+        tipo_erro = type(e).__name__
+        msg = str(e).strip() or "(mensagem vazia)"
+        log(f"Erro geral em {nome_cliente} [{tipo_erro}]: {msg[:200]}",
+            "ERROR", MODULO)
+        # Captura screenshot para diagnóstico (não falha se driver estiver morto)
+        try:
+            os.makedirs(PASTA_DIAGNOSTICO, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fname = f"{ts}_{cpf}_{tipo_erro}.png"
+            driver.save_screenshot(os.path.join(PASTA_DIAGNOSTICO, fname))
+            log(f"Screenshot salvo: {fname}", modulo=MODULO)
+        except Exception:
+            pass
         raise
 
 
@@ -325,6 +342,8 @@ def main():
 
     max_relogin = 5
     tentativas = 0
+    erros_por_tipo: dict[str, int] = {}
+    sucessos = 0
 
     while tentativas < max_relogin and clientes_restantes:
         driver, wait = iniciar_e_logar()
@@ -336,6 +355,8 @@ def main():
 
         try:
             total = len(clientes_restantes)
+            processados_nesta_sessao = 0
+
             for i, linha in enumerate(clientes_restantes):
                 nome = str(linha["pessoa"])
                 cpf = re.sub(r"\D", "", str(linha["pessoacpfcnpj"]))
@@ -344,28 +365,57 @@ def main():
 
                 try:
                     processar_cliente(driver, wait, cpf, nome)
+                    sucessos += 1
                 except Exception as e:
+                    tipo_erro = type(e).__name__
+                    erros_por_tipo[tipo_erro] = erros_por_tipo.get(tipo_erro, 0) + 1
                     # Marca como processado ANTES de verificar o driver para
                     # evitar loop infinito no mesmo cliente após reconexão
                     cpfs_ja_feitos.add(cpf)
                     salvar_progresso(cpfs_ja_feitos)
-                    log(f"Erro em {nome}, cliente marcado como pulado: {e}", "WARNING", MODULO)
-                    # Verifica se o driver ainda responde
+                    log(f"Erro em {nome} [{tipo_erro}], cliente marcado como pulado.",
+                        "WARNING", MODULO)
                     try:
                         _ = driver.current_url
-                        continue  # driver vivo — pula este cliente e segue
+                        # driver vivo — pula este cliente e segue
                     except Exception:
                         raise  # driver morto — sai para reconectar
+                else:
+                    cpfs_ja_feitos.add(cpf)
+                    salvar_progresso(cpfs_ja_feitos)
 
-                cpfs_ja_feitos.add(cpf)
-                salvar_progresso(cpfs_ja_feitos)
+                processados_nesta_sessao += 1
+
+                # Restart preventivo: Chrome headless vaza memória em execuções longas.
+                # Reinicia o driver a cada RESTART_INTERVAL clientes (mas não no último).
+                if (processados_nesta_sessao % RESTART_INTERVAL == 0
+                        and i < total - 1):
+                    log(f"Restart preventivo do Chrome apos {processados_nesta_sessao} clientes.",
+                        modulo=MODULO)
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
+                    driver, wait = iniciar_e_logar()
+                    if not driver:
+                        log("Falha ao reiniciar Chrome durante restart preventivo.",
+                            "ERROR", MODULO)
+                        tentativas += 1
+                        break  # sai do for, while reabre o driver
 
             log("Pipeline do buscador finalizado.", "SUCCESS", MODULO)
-            driver.quit()
+            log(f"Resumo: sucessos={sucessos} | erros por tipo: "
+                f"{erros_por_tipo or '{}'}", modulo=MODULO)
+            try:
+                driver.quit()
+            except Exception:
+                pass
             return
 
         except Exception as e:
-            log(f"Erro durante processamento, tentando reconectar: {e}", "WARNING", MODULO)
+            tipo_erro = type(e).__name__
+            log(f"Erro durante processamento [{tipo_erro}], tentando reconectar: {e}",
+                "WARNING", MODULO)
             tentativas += 1
             try:
                 driver.quit()
@@ -377,7 +427,9 @@ def main():
             ]
             time.sleep(5)
 
-    log("Limite de tentativas de re-login atingido.", "ERROR", MODULO)
+    log(f"Limite de tentativas de re-login atingido. "
+        f"Sucessos: {sucessos} | erros por tipo: {erros_por_tipo or '{}'}",
+        "ERROR", MODULO)
 
 
 if __name__ == "__main__":
