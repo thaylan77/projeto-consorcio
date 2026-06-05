@@ -23,10 +23,29 @@ MODULO = "Buscador"
 arquivo_csv = "relatorio_microwork_consorcio.csv"
 ARQUIVO_PROGRESSO = "progresso_buscador.json"
 PASTA_DIAGNOSTICO = "diagnostico_buscador"
+DIAS_RETENCAO_DIAG = 7  # screenshots de diagnóstico mais antigos são deletados
 
 # Reinicia o driver a cada N clientes para evitar vazamento de memória
 # do Chrome headless em execuções longas.
 RESTART_INTERVAL = 50
+
+
+def _limpar_diagnostico_antigo() -> None:
+    """Remove screenshots da pasta de diagnóstico com mais de DIAS_RETENCAO_DIAG dias."""
+    if not os.path.exists(PASTA_DIAGNOSTICO):
+        return
+    limite = time.time() - DIAS_RETENCAO_DIAG * 86400
+    removidos = 0
+    for f in glob.glob(os.path.join(PASTA_DIAGNOSTICO, "*.png")):
+        try:
+            if os.path.getmtime(f) < limite:
+                os.remove(f)
+                removidos += 1
+        except Exception:
+            continue
+    if removidos > 0:
+        log(f"Diagnostico: {removidos} screenshots > {DIAS_RETENCAO_DIAG} dias removidos.",
+            modulo=MODULO)
 
 
 def _criar_options() -> webdriver.ChromeOptions:
@@ -401,6 +420,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
 # =============================================================================
 def main():
     os.makedirs(PASTA_PARA_ENVIAR, exist_ok=True)
+    _limpar_diagnostico_antigo()
     log(f"Lendo CSV (ultimos {MESES_RETROATIVOS} meses)...", modulo=MODULO)
     try:
         df = pd.read_csv(arquivo_csv)
