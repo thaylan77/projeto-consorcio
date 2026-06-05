@@ -136,9 +136,21 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
     """
     log(f"Iniciando: {nome_cliente} (CPF: {cpf})", modulo=MODULO)
     parcelas_ignoradas = 0
+    # Rastreia em qual etapa estávamos quando der erro, e quanto tempo cada uma levou.
+    etapa_atual = "inicio"
+    etapa_inicio = time.monotonic()
+    etapas_log: list[str] = []
+
+    def _marcar(nome_etapa: str):
+        nonlocal etapa_atual, etapa_inicio
+        dur = time.monotonic() - etapa_inicio
+        etapas_log.append(f"{etapa_atual}={dur:.1f}s")
+        etapa_atual = nome_etapa
+        etapa_inicio = time.monotonic()
 
     try:
         # --- RESET DE TELA ---
+        etapa_atual = "reset_tela"
         try:
             try:
                 driver.find_element(By.ID, "ctl00_Conteudo_ctl00_tvwMenut2").click()
@@ -157,6 +169,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
             )).click()
 
         # --- SELECIONAR CPF ---
+        _marcar("selecionar_cpf")
         wait.until(EC.presence_of_element_located((By.ID, "ctl00_Conteudo_cbxCriterioBusca")))
         driver.execute_script(
             "var d=document.getElementById('ctl00_Conteudo_cbxCriterioBusca');"
@@ -166,6 +179,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
         wait.until(EC.presence_of_element_located((By.ID, "ctl00_Conteudo_edtContextoBusca")))
 
         # --- BUSCAR ---
+        _marcar("buscar")
         campo = wait.until(EC.element_to_be_clickable((By.ID, "ctl00_Conteudo_edtContextoBusca")))
         campo.clear()
         campo.send_keys(cpf)
@@ -176,6 +190,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
         ))
 
         # --- STATUS ---
+        _marcar("ler_status")
         try:
             situacao = wait.until(EC.presence_of_element_located(
                 (By.ID, "ctl00_Conteudo_grdBuscaAvancada_ctl02_lnkCD_Situacao_Cobranca")
@@ -191,6 +206,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
             return {"categoria": "sem_contrato", "baixados": 0, "ignoradas": 0}
 
         # --- ENTRAR NO CONTRATO ---
+        _marcar("abrir_contrato")
         try:
             driver.find_element(
                 By.ID, "ctl00_Conteudo_grdBuscaAvancada_ctl02_lnkID_Documento"
@@ -201,6 +217,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
             return {"categoria": "abrir_contrato_falhou", "baixados": 0, "ignoradas": 0}
 
         # --- CONFIRMAR E LOCALIZAR ---
+        _marcar("confirmar_localizar")
         wait.until(EC.element_to_be_clickable((By.ID, "ctl00_Conteudo_btnConfirma"))).click()
         wait.until(EC.presence_of_element_located(
             (By.ID, "ctl00_Conteudo_identificacao_cota_btnLocaliza")
@@ -215,6 +232,7 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
         time.sleep(4)
 
         # --- PARCELAS ---
+        _marcar("ler_tabela")
         tabela = wait.until(
             EC.presence_of_element_located((By.ID, "ctl00_Conteudo_grdBoleto_Avulso"))
         )
@@ -355,15 +373,24 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
     except Exception as e:
         tipo_erro = type(e).__name__
         msg = str(e).strip() or "(mensagem vazia)"
-        log(f"Erro geral em {nome_cliente} [{tipo_erro}]: {msg[:200]}",
-            "ERROR", MODULO)
-        # Captura screenshot para diagnóstico (não falha se driver estiver morto)
+        # Marca a etapa que falhou também na linha do tempo
+        dur_atual = time.monotonic() - etapa_inicio
+        etapas_log.append(f"{etapa_atual}=FALHOU_apos_{dur_atual:.1f}s")
+        log(f"Erro em {nome_cliente} [{tipo_erro}] na etapa '{etapa_atual}' "
+            f"({msg[:120]})", "ERROR", MODULO)
+        log(f"  Linha do tempo: {' | '.join(etapas_log)}", modulo=MODULO)
+        # Screenshot pra diagnóstico (nome inclui etapa pra facilitar grep)
         try:
             os.makedirs(PASTA_DIAGNOSTICO, exist_ok=True)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fname = f"{ts}_{cpf}_{tipo_erro}.png"
+            fname = f"{ts}_{cpf}_{etapa_atual}_{tipo_erro}.png"
             driver.save_screenshot(os.path.join(PASTA_DIAGNOSTICO, fname))
             log(f"Screenshot salvo: {fname}", modulo=MODULO)
+        except Exception:
+            pass
+        # Anota a etapa que falhou pro main agregar
+        try:
+            e._etapa_falha = etapa_atual  # type: ignore[attr-defined]
         except Exception:
             pass
         raise
@@ -406,10 +433,12 @@ def main():
     max_relogin = 5
     tentativas = 0
     erros_por_tipo: dict[str, int] = {}
+    erros_por_etapa: dict[str, int] = {}   # qual passo gerou o timeout/erro
     categorias: dict[str, int] = {
         "baixou": 0, "quitado_cancelado": 0, "sem_contrato": 0,
         "abrir_contrato_falhou": 0, "sem_parcela_valida": 0,
     }
+    status_breakdown: dict[str, int] = {}  # CAN/QUI/SUS/TRA... separados
     total_pdfs   = 0
     total_ignor  = 0
     sucessos     = 0
@@ -437,17 +466,22 @@ def main():
                     sucessos += 1
                     cat = res.get("categoria", "?") if isinstance(res, dict) else "?"
                     categorias[cat] = categorias.get(cat, 0) + 1
+                    if cat == "quitado_cancelado":
+                        st = res.get("status", "?")
+                        status_breakdown[st] = status_breakdown.get(st, 0) + 1
                     total_pdfs  += res.get("baixados", 0) if isinstance(res, dict) else 0
                     total_ignor += res.get("ignoradas", 0) if isinstance(res, dict) else 0
                 except Exception as e:
                     tipo_erro = type(e).__name__
                     erros_por_tipo[tipo_erro] = erros_por_tipo.get(tipo_erro, 0) + 1
+                    etapa_falha = getattr(e, "_etapa_falha", "?")
+                    erros_por_etapa[etapa_falha] = erros_por_etapa.get(etapa_falha, 0) + 1
                     # Marca como processado ANTES de verificar o driver para
                     # evitar loop infinito no mesmo cliente após reconexão
                     cpfs_ja_feitos.add(cpf)
                     salvar_progresso(cpfs_ja_feitos)
-                    log(f"Erro em {nome} [{tipo_erro}], cliente marcado como pulado.",
-                        "WARNING", MODULO)
+                    log(f"Erro em {nome} [{tipo_erro} @ {etapa_falha}], "
+                        f"cliente marcado como pulado.", "WARNING", MODULO)
                     try:
                         _ = driver.current_url
                         # driver vivo — pula este cliente e segue
@@ -487,10 +521,18 @@ def main():
             for cat, n in sorted(categorias.items(), key=lambda x: -x[1]):
                 if n > 0:
                     log(f"    {cat:25s}: {n}", modulo=MODULO)
+            if status_breakdown:
+                log("  Status (breakdown de quitado_cancelado):", modulo=MODULO)
+                for st, n in sorted(status_breakdown.items(), key=lambda x: -x[1]):
+                    log(f"    {st:25s}: {n}", modulo=MODULO)
             if erros_por_tipo:
                 log("  Erros por tipo:", modulo=MODULO)
                 for tp, n in sorted(erros_por_tipo.items(), key=lambda x: -x[1]):
                     log(f"    {tp:25s}: {n}", modulo=MODULO)
+            if erros_por_etapa:
+                log("  Erros por etapa:", modulo=MODULO)
+                for ep, n in sorted(erros_por_etapa.items(), key=lambda x: -x[1]):
+                    log(f"    {ep:25s}: {n}", modulo=MODULO)
             log("=" * 55, modulo=MODULO)
             try:
                 driver.quit()
