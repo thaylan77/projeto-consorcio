@@ -421,12 +421,18 @@ def processar_cliente(driver, wait, cpf: str, nome_cliente: str) -> dict:
 def main():
     os.makedirs(PASTA_PARA_ENVIAR, exist_ok=True)
     _limpar_diagnostico_antigo()
-    log(f"Lendo CSV (ultimos {MESES_RETROATIVOS} meses)...", modulo=MODULO)
+    if MESES_RETROATIVOS > 0:
+        log(f"Lendo CSV (ultimos {MESES_RETROATIVOS} meses)...", modulo=MODULO)
+    else:
+        log("Lendo CSV (sem filtro de data — carteira inteira)...", modulo=MODULO)
     try:
         df = pd.read_csv(arquivo_csv)
         df["datavenda"] = pd.to_datetime(df["datavenda"])
-        data_corte = datetime.now() - relativedelta(months=MESES_RETROATIVOS)
-        df_filtrado = df[df["datavenda"] >= data_corte]
+        if MESES_RETROATIVOS > 0:
+            data_corte = datetime.now() - relativedelta(months=MESES_RETROATIVOS)
+            df_filtrado = df[df["datavenda"] >= data_corte]
+        else:
+            df_filtrado = df
         log(f"Total a processar: {len(df_filtrado)} clientes.", modulo=MODULO)
         if len(df_filtrado) == 0:
             return

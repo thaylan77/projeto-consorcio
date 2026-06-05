@@ -40,7 +40,10 @@ LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "5"))
 
 # Regras de negócio
 VALOR_MINIMO_EMISSAO = float(os.getenv("VALOR_MINIMO_EMISSAO", "15.00"))
-MESES_RETROATIVOS    = int(os.getenv("MESES_RETROATIVOS", "9"))
+# MESES_RETROATIVOS = 0 (padrão) processa TODOS os clientes do CSV — a carteira
+# Yamaha tem consórcios de 36-48 meses, então recortar por meses recentes
+# excluía a maioria dos pagantes. Defina > 0 só se quiser limitar a vendas recentes.
+MESES_RETROATIVOS    = int(os.getenv("MESES_RETROATIVOS", "0"))
 
 # Janelas de envio automático
 # D-7: envia aviso antecipado quando faltam entre JANELA_D7_MIN e JANELA_D7_MAX dias
